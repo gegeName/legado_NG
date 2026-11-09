@@ -297,6 +297,19 @@ class ChapterCacheReorderTest {
 }
 
 class ChapterCacheReorderTestApplication : Application() {
+    companion object {
+        private var externalDirectory: File? = null
+    }
+
+    // BookHelp caches its external directory for the process lifetime; use the same root
+    // for AudioDownloadCache after Robolectric replaces the Application between methods.
+    override fun getExternalFilesDir(type: String?): File? {
+        val root = externalDirectory
+            ?: super.getExternalFilesDir(null)?.also { externalDirectory = it }
+            ?: return null
+        return if (type == null) root else File(root, type).apply { mkdirs() }
+    }
+
     override fun onCreate() {
         super.onCreate()
         injectAsAppCtx()

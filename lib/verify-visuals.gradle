@@ -1,0 +1,32 @@
+// Feature integration UI is outside the upstream task's app/ui scan.
+tasks.register('verifyFeatureVisuals') {
+    group = 'verification'
+    description = 'Check feature integration and library UI against NG visual rules'
+    doLast {
+        def rules = [
+            hex: ~/(?i)#[0-9a-f]{6,8}/,
+            theme_store: ~/\bThemeStore\b/,
+            private_scheme: ~/\b(lightColorScheme|darkColorScheme)\s*\(/,
+            visual_boolean: ~/\b(useWhiteBackground|disableGlass|useSurfaceBackground|useDarkText|useStrongBorder)\b/
+        ]
+        def sources = rootProject.fileTree('app/src/main/java/io/legado/app/integration') { include '**/*.kt' }.files
+        rootProject.subprojects.findAll { it.path.startsWith(':lib:') }.each { p ->
+            sources += p.fileTree('src') {
+                include '**/ui/**/*.kt', '**/res/layout/**/*.xml', '**/res/values/colors.xml'
+                exclude '**/test/**'
+            }.files
+        }
+        def violations = []
+        sources.each { file ->
+            def content = file.getText('UTF-8')
+            rules.each { name, pattern ->
+                if (pattern.matcher(content).find()) violations << "$name|${rootProject.relativePath(file)}"
+            }
+            if (file.name.startsWith('item_') && content.contains('NgGlassLayout')) {
+                violations << "recycler_glass|${rootProject.relativePath(file)}"
+            }
+        }
+        if (!violations.isEmpty()) throw new GradleException(violations.unique().join('\n'))
+        logger.lifecycle("Feature visuals OK (${sources.size()} integration/library files). Device appearance is not asserted.")
+    }
+}

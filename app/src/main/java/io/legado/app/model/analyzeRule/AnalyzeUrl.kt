@@ -1,5 +1,7 @@
 package io.legado.app.model.analyzeRule
 
+import io.legado.app.integration.rule.NgYiciyuanBridge
+
 import android.annotation.SuppressLint
 import android.util.Base64
 import androidx.annotation.Keep
@@ -462,7 +464,8 @@ class AnalyzeUrl(
         val startTime = System.currentTimeMillis()
         val strResponse: StrResponse
         try {
-            if (this.useWebView && useWebView) {
+            if ((this.useWebView || (NgYiciyuanBridge.isAdapterSource(source) &&
+                        (!jsStr.isNullOrBlank() || !webJs.isNullOrBlank()))) && useWebView) {
                 strResponse = when (method) {
                     RequestMethod.POST -> {
                         val res = getClient().newCallStrResponse(retry) {

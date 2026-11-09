@@ -1,4 +1,5 @@
 package io.legado.app.help.storage
+import io.legado.app.integration.platform.NgFeatureBackup
 
 import android.content.Context
 import android.net.Uri
@@ -87,7 +88,8 @@ object Backup {
             ReadHighlightRuleStore.fileName,
             BookCover.configFileName,
             "config.xml",
-            "videoConfig.xml"
+            "videoConfig.xml",
+            NgFeatureBackup.fileName
         )
     }
 
@@ -252,6 +254,7 @@ object Backup {
         }
         currentCoroutineContext().ensureActive()
         val zipFileName = getNowZipFileName()
+        if (BackupModule.OTHER.id in modules) NgFeatureBackup.write(File(backupPath))
         BackupResources.finishManifest(File(backupPath), selectedFiles)
         val paths = ArrayList(selectedFiles + BackupResources.MANIFEST + BackupResources.ASSETS)
         for (i in 0 until paths.size) {

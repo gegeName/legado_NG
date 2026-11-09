@@ -16,6 +16,7 @@ import io.legado.app.utils.isDataUrl
 import io.legado.app.utils.lifecycle
 import java.io.File
 import androidx.core.net.toUri
+import io.legado.app.integration.image.NgExtensionImageLoader
 
 //https://bumptech.github.io/glide/doc/generatedapi.html
 //Instead of GlideApp, use com.bumptech.Glide
@@ -28,6 +29,7 @@ object ImageLoader {
     fun load(context: Context, path: String?): RequestBuilder<Drawable> {
         return when {
             path.isNullOrEmpty() -> Glide.with(context).load(path)
+            NgExtensionImageLoader.handles(path) -> Glide.with(context).load(path)
             path.isDataUrl() -> Glide.with(context).load(path)
             path.isAbsUrl() -> Glide.with(context).load(path)
             path.isContentScheme() -> Glide.with(context).load(path.toUri())
@@ -44,6 +46,7 @@ object ImageLoader {
         val requestManager = Glide.with(fragment).lifecycle(lifecycle)
         return when {
             path.isNullOrEmpty() -> requestManager.load(path)
+            NgExtensionImageLoader.handles(path) -> requestManager.load(path)
             path.isDataUrl() -> requestManager.load(path)
             path.isAbsUrl() -> requestManager.load(path)
             path.isContentScheme() -> requestManager.load(path.toUri())
@@ -61,6 +64,7 @@ object ImageLoader {
         val requestManager = Glide.with(context).`as`(Bitmap::class.java)
         return when {
             path.isNullOrEmpty() -> requestManager.load(path)
+            NgExtensionImageLoader.handles(path) -> requestManager.load(path)
             path.isDataUrl() -> requestManager.load(path)
             path.isAbsUrl() -> requestManager.load(path)
             path.isContentScheme() -> requestManager.load(path.toUri())
@@ -76,6 +80,7 @@ object ImageLoader {
     fun loadFile(context: Context, path: String?): RequestBuilder<File> {
         return when {
             path.isNullOrEmpty() -> Glide.with(context).asFile().load(path)
+            NgExtensionImageLoader.handles(path) -> Glide.with(context).asFile().load(path)
             path.isAbsUrl() -> Glide.with(context).asFile().load(path)
             path.isContentScheme() -> Glide.with(context).asFile().load(path.toUri())
             else -> kotlin.runCatching {

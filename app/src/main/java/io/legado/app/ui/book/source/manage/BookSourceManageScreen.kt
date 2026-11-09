@@ -79,6 +79,7 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 private const val ADD_JS_ITEM_ID = 0x56000001
+private const val EXTENSIONS_ITEM_ID = 0x56000002
 private const val FILTER_STATUS_PARENT_ITEM_ID = 0x56000100
 private const val FILTER_ALL_ITEM_ID = 0x56000101
 private const val FILTER_GROUP_PARENT_ITEM_ID = 0x56000200
@@ -92,6 +93,7 @@ internal sealed interface BookSourceManageAction {
     data object Back : BookSourceManageAction
     data object AddDeclarative : BookSourceManageAction
     data object AddJavaScript : BookSourceManageAction
+    data object ManageExtensions : BookSourceManageAction
     data object ImportLocal : BookSourceManageAction
     data object ImportOnline : BookSourceManageAction
     data object ImportQr : BookSourceManageAction
@@ -438,6 +440,7 @@ private fun BookSourceManageTopBar(
                 R.string.book_source_add_javascript,
                 R.drawable.ic_code,
             ),
+            NgExpandableActionMenuItem(EXTENSIONS_ITEM_ID, 0, R.drawable.ic_code, title = "Mihon / Aniyomi 扩展"),
             NgExpandableActionMenuItem(
                 R.id.menu_import_local,
                 R.string.import_local,
@@ -558,6 +561,7 @@ private fun BookSourceManageTopBar(
                     when (item.itemId) {
                         R.id.menu_add_book_source -> onAction(BookSourceManageAction.AddDeclarative)
                         ADD_JS_ITEM_ID -> onAction(BookSourceManageAction.AddJavaScript)
+                        EXTENSIONS_ITEM_ID -> onAction(BookSourceManageAction.ManageExtensions)
                         R.id.menu_import_local -> onAction(BookSourceManageAction.ImportLocal)
                         R.id.menu_import_onLine -> onAction(BookSourceManageAction.ImportOnline)
                         R.id.menu_import_qr -> onAction(BookSourceManageAction.ImportQr)

@@ -273,7 +273,7 @@ object RhinoClassShutter : ClassShutter {
         }
         if (
             (bookSourcePolicyDepth.get() ?: 0) > 0 &&
-            fullClassName.startsWith(appClassPrefix)
+            (fullClassName.startsWith(appClassPrefix) || fullClassName.startsWith("io.legado.features."))
         ) {
             return fullClassName in bookSourceDirectClassImports
         }

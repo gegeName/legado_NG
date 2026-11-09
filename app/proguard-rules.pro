@@ -8,6 +8,10 @@
 # 开源版本保留代码/资源压缩与优化，但不改写类、方法和字段名，减少 Debug/Release 行为差异
 -dontobfuscate
 
+# Returned to source scripts through the feature host bridge.
+-keep class io.legado.features.yiciyuan.YiciyuanSourceConverter$FetchResponse { public *; }
+-keep class io.legado.features.yiciyuan.YiciyuanSourceConverter$FetchBody { public *; }
+
 # If your project uses WebView with JS, uncomment the following
 # and specify the fully qualified class name to the JavaScript interface
 # class:

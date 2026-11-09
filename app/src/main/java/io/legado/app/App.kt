@@ -55,6 +55,9 @@ import io.legado.app.help.source.SourceHelp
 import io.legado.app.help.storage.Backup
 import io.legado.app.model.BookCover
 import io.legado.app.quickjs.QuickJsSandboxProcess
+import io.legado.app.integration.source.NgExtensionBootstrap
+import io.legado.features.adapter.TvBoxFeatures
+import io.legado.app.integration.manga.NgMangaPdfBridge
 import io.legado.app.service.McpService
 import io.legado.app.utils.ChineseUtils
 import io.legado.app.utils.LogUtils
@@ -77,7 +80,8 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        if (QuickJsSandboxProcess.isCurrentProcess()) return
+        if (QuickJsSandboxProcess.isCurrentProcess() || TvBoxFeatures.isWorkerProcess()) return
+        io.legado.app.integration.FeatureBootstrap.start(this)
         CrashHandler(this)
         if (isDebuggable) {
             ThreadUtils.setThreadAssertsDisabledForTesting(true)
@@ -140,16 +144,28 @@ class App : Application() {
     }
 
     override fun attachBaseContext(base: Context) {
-        if (QuickJsSandboxProcess.isCurrentProcess()) {
+        if (QuickJsSandboxProcess.isCurrentProcess() || TvBoxFeatures.isWorkerProcess()) {
             super.attachBaseContext(base)
         } else {
             super.attachBaseContext(AppContextWrapper.wrap(base))
         }
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (!QuickJsSandboxProcess.isCurrentProcess() && !TvBoxFeatures.isWorkerProcess() && level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            NgMangaPdfBridge.trimMemory(level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL || level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        if (!QuickJsSandboxProcess.isCurrentProcess() && !TvBoxFeatures.isWorkerProcess()) NgMangaPdfBridge.trimMemory(true)
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        if (QuickJsSandboxProcess.isCurrentProcess()) return
+        if (QuickJsSandboxProcess.isCurrentProcess() || TvBoxFeatures.isWorkerProcess()) return
         val diff = newConfig.diff(oldConfig)
         if ((diff and ActivityInfo.CONFIG_UI_MODE) != 0) {
             onSystemUiModeChanged(this, newConfig.isNightMode)

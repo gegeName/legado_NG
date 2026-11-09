@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.legado.app.help.config.AppConfig
+import io.legado.app.integration.manga.NgMangaReaderBridge
+import io.legado.app.integration.manga.NgMangaTranslationBridge
+import io.legado.app.integration.manga.NgMangaLayout
 import io.legado.app.ui.book.manga.config.MangaColorFilterConfig
 import io.legado.app.ui.book.manga.config.MangaFooterConfig
 import io.legado.app.ui.book.manga.config.MangaReadingStyle
@@ -23,11 +26,12 @@ internal enum class MangaColorMode { ORIGINAL, GRAY, INK }
 internal enum class MangaTap { NONE, MENU, PREVIOUS, NEXT }
 internal enum class MangaAction {
     BACK, INFO, CHANGE_SOURCE, REFRESH, CATALOG, PREVIOUS_CHAPTER, NEXT_CHAPTER,
-    OPEN_WEB, WEB_MODE, RETRY, TAIL_RETRY, RESET_READING,
+    OPEN_WEB, WEB_MODE, RETRY, TAIL_RETRY, RESET_READING, TRANSLATION_SETTINGS,
     SOURCE_LOGIN, SOURCE_EDIT, SOURCE_DISABLE, SOURCE_ENABLE, CHAPTER_PAY,
 }
 internal enum class MangaSetting {
     MODE, LAYOUT, DIRECTION, EFFECT, BOOK_STYLE, AUTO, INTERVAL, SPEED, SCALE, CLICK, PRELOAD, HINTS,
+    CHAPTER_AHEAD, CHAPTER_BEHIND, IMAGE_CHAPTERS, DOUBLE_PAGE, PDF_AHEAD,
     COLOR, THRESHOLD, BRIGHTNESS, RED, GREEN, BLUE, ALPHA,
     FOOTER, FOOTER_LEFT, FOOTER_MIDDLE, FOOTER_RIGHT, CATALOG_STYLE,
 }
@@ -70,6 +74,13 @@ internal class MangaReaderState {
     var touchUpRevision by mutableIntStateOf(0)
     var externalModal by mutableStateOf(false)
     var preload by mutableIntStateOf(AppConfig.mangaPreDownloadNum.coerceAtLeast(0))
+    var chapterAhead by mutableIntStateOf(NgMangaReaderBridge.preferences.chapterAhead)
+    var chapterBehind by mutableIntStateOf(NgMangaReaderBridge.preferences.chapterBehind)
+    var imageChapters by mutableIntStateOf(NgMangaReaderBridge.preferences.imageChapters)
+    var doublePage by mutableStateOf(NgMangaReaderBridge.preferences.doublePage)
+    var pdfAhead by mutableIntStateOf(io.legado.app.integration.manga.NgMangaPdfBridge.ahead())
+    var translationEnabled by mutableStateOf(NgMangaTranslationBridge.configuration.enabled)
+    var translationRevision by mutableIntStateOf(0)
     var chapterHints by mutableStateOf(!AppConfig.hideMangaTitle)
     var colorMode by mutableStateOf(when {
         AppConfig.enableMangaEInk -> MangaColorMode.INK
@@ -93,12 +104,21 @@ internal class MangaReaderState {
     var turnRevision by mutableIntStateOf(0)
     var appliedTurnRevision by mutableIntStateOf(0)
     var scale by mutableFloatStateOf(1f)
+    private val progressAnchor = io.legado.features.adapter.MangaReaderFeatures.Anchor()
 
     val autoRunning: Boolean
         get() = active && !loading && panel == MangaPanel.NONE && !menuVisible && !externalModal &&
             !touching && scale == 1f
 
-    fun jumpTo(index: Int) { jumpIndex = index; jumpRevision++ }
+    fun jumpTo(index: Int) {
+        jumpIndex = index; jumpRevision++
+        (pages.getOrNull(index) as? MangaPage)?.let {
+            progressAnchor.begin(NgMangaLayout.neutral(it).key, jumpRevision.toLong(), android.os.SystemClock.elapsedRealtime())
+        }
+    }
+    fun acceptProgress(page: BaseMangaPage): Boolean = (page as? MangaPage)?.let {
+        progressAnchor.accept(NgMangaLayout.neutral(it).key, jumpRevision.toLong(), android.os.SystemClock.elapsedRealtime())
+    } ?: true
     fun turn(direction: Int) { turnDirection = direction; turnRevision++ }
     fun claimTurn(): Int? {
         if (turnRevision <= appliedTurnRevision) return null
@@ -112,7 +132,7 @@ internal fun mangaTailKey(pages: List<BaseMangaPage>): String = "load-more:${pag
 internal fun mangaTailPage(pages: List<BaseMangaPage>): BaseMangaPage? {
     val last = pages.lastOrNull() ?: return null
     return pages.asReversed().asSequence().takeWhile { it.chapterIndex == last.chapterIndex }
-        .filterIsInstance<MangaPage>().firstOrNull() ?: last
+        .flatMap { NgMangaLayout.realPages(it).asReversed().asSequence() }.firstOrNull() ?: last
 }
 
 internal fun mangaTapAction(x: Float, y: Float, width: Float, height: Float,

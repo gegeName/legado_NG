@@ -1,0 +1,27 @@
+plugins {
+    alias libs.plugins.android.library
+    alias libs.plugins.kotlin.android
+}
+android {
+    namespace 'io.legado.features.media3'
+    compileSdk compile_sdk_version
+    defaultConfig { minSdk 21; consumerProguardFiles 'consumer-rules.pro' }
+    kotlin { jvmToolchain(17) }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    testOptions { unitTests.returnDefaultValues = true }
+}
+dependencies {
+    api project(':lib:feature-api')
+    implementation project(':lib:video-support')
+    api libs.media3.exoplayer
+    implementation libs.media3.ui
+    implementation libs.media3.datasource.okhttp
+    implementation "androidx.media3:media3-effect:${libs.versions.media3.get()}"
+    implementation "androidx.media3:media3-exoplayer-hls:${libs.versions.media3.get()}"
+    implementation "androidx.media3:media3-exoplayer-dash:${libs.versions.media3.get()}"
+    implementation "androidx.media3:media3-exoplayer-rtsp:${libs.versions.media3.get()}"
+    implementation "androidx.media3:media3-exoplayer-smoothstreaming:${libs.versions.media3.get()}"
+    implementation "androidx.media3:media3-datasource-rtmp:${libs.versions.media3.get()}"
+    implementation libs.okhttp
+    testImplementation libs.junit
+}

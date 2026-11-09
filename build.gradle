@@ -35,3 +35,7 @@ plugins {
 tasks.register('clean', Delete) {
     delete rootProject.layout.buildDirectory
 }
+
+apply from: 'lib/verify-boundaries.gradle'
+apply from: 'lib/verify-visuals.gradle'
+apply from: 'lib/verify-artifacts.gradle'

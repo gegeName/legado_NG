@@ -11,6 +11,8 @@ import io.legado.app.utils.GSON
 import io.legado.app.utils.MD5Utils
 import io.legado.app.utils.fromJsonArray
 import io.legado.app.utils.fromJsonObject
+import io.legado.app.integration.FeatureBootstrap
+import io.legado.features.api.tts.JsonResponseValidation
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -19,6 +21,8 @@ import splitties.init.appCtx
 import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 
@@ -46,14 +50,15 @@ object TtsScriptEngineClient {
         return DEFAULT_TTS_PREVIEW_TEXT
     }
 
-    fun loadOptions(engine: TtsEngineSetting): List<TtsScriptOption> {
+    fun loadOptions(engine: TtsEngineSetting, coroutineContext: CoroutineContext = EmptyCoroutineContext): List<TtsScriptOption> {
+        coroutineContext.ensureActive()
         val cacheKey = optionsCacheKey(engine)
         cachedOptions(cacheKey)?.let { return it }
         val loadLock = optionsLoadLocks.getOrPut(cacheKey) { Any() }
         return try {
             synchronized(loadLock) {
                 cachedOptions(cacheKey)?.let { return@synchronized it }
-                val result = callOptionsFunction(engine)
+                val result = callOptionsFunction(engine, coroutineContext)
                 val options = parseOptionsResult(result)
                 synchronized(optionsCache) {
                     optionsCache[cacheKey] = options
@@ -91,7 +96,7 @@ object TtsScriptEngineClient {
         return options
     }
 
-    private fun callOptionsFunction(engine: TtsEngineSetting): String? {
+    private fun callOptionsFunction(engine: TtsEngineSetting, coroutineContext: CoroutineContext): String? {
         if (engine.script.isBlank()) {
             return null
         }
@@ -111,7 +116,7 @@ object TtsScriptEngineClient {
                 return JSON.stringify(value);
             })();
         """.trimIndent()
-        val result = engine.evalJS(js)?.toString() ?: return null
+        val result = evaluate(engine, js, coroutineContext) ?: return null
         if (result.isBlank() || result == "null") {
             throw JsonSyntaxException("TTS options() must return an array")
         }
@@ -119,10 +124,12 @@ object TtsScriptEngineClient {
     }
 
     suspend fun fetchVoices(engine: TtsEngineSetting): List<TtsVoice> {
-        val options = engine.effectiveOptionValues(loadOptions(engine))
+        val context = currentCoroutineContext()
+        val options = engine.effectiveOptionValues(loadOptions(engine, context))
         val result = callEngineFunction(
             engine = engine,
             functionName = "voices",
+            coroutineContext = context,
             arguments = listOf(
                 GSON.toJson(options),
                 GSON.toJson(extensionContext(engine))
@@ -169,6 +176,8 @@ object TtsScriptEngineClient {
         coroutineContext: CoroutineContext,
         aggregateResponse: Boolean
     ): SynthesisExecution {
+        val requestContext = currentCoroutineContext() + coroutineContext
+        requestContext.ensureActive()
         val prepared = prepareSynthesisRequest(
             engine = engine,
             text = text,
@@ -177,7 +186,8 @@ object TtsScriptEngineClient {
             speed = speed,
             volume = volume,
             pitch = pitch,
-            synthesisContext = synthesisContext
+            synthesisContext = synthesisContext,
+            coroutineContext = requestContext
         )
         val request = prepared.request
         return SynthesisExecution(
@@ -190,7 +200,7 @@ object TtsScriptEngineClient {
                 pitch = prepared.params.pitch,
                 voiceId = prepared.voiceId,
                 voiceName = prepared.voiceName,
-                coroutineContext = coroutineContext,
+                coroutineContext = requestContext,
                 aggregateResponse = aggregateResponse
             ),
             audioContentType = request.audioContentType ?: engine.contentType
@@ -205,7 +215,8 @@ object TtsScriptEngineClient {
         speed: Int = engine.effectiveSpeed(),
         volume: Int = engine.effectiveVolume(),
         pitch: Int = engine.effectivePitch(),
-        synthesisContext: TtsSynthesisContext? = null
+        synthesisContext: TtsSynthesisContext? = null,
+        coroutineContext: CoroutineContext = EmptyCoroutineContext
     ): TtsScriptRequest {
         return prepareSynthesisRequest(
             engine = engine,
@@ -215,7 +226,8 @@ object TtsScriptEngineClient {
             speed = speed,
             volume = volume,
             pitch = pitch,
-            synthesisContext = synthesisContext
+            synthesisContext = synthesisContext,
+            coroutineContext = coroutineContext
         ).request
     }
 
@@ -227,8 +239,10 @@ object TtsScriptEngineClient {
         speed: Int,
         volume: Int,
         pitch: Int,
-        synthesisContext: TtsSynthesisContext?
+        synthesisContext: TtsSynthesisContext?,
+        coroutineContext: CoroutineContext
     ): PreparedSynthesisRequest {
+        coroutineContext.ensureActive()
         val voice = TtsEngineStore.voice(engine.id, voiceId)
             ?: engine.effectiveVoices().firstOrNull { it.id == voiceId }
         val resolvedVoiceId = voice?.id ?: voiceId
@@ -237,7 +251,7 @@ object TtsScriptEngineClient {
             baseVolume = volume,
             basePitch = pitch,
         )
-        val options = engine.effectiveOptionValues(loadOptions(engine))
+        val options = engine.effectiveOptionValues(loadOptions(engine, coroutineContext))
         val params = mapOf(
             "speed" to resolvedParams.speed,
             "volume" to resolvedParams.volume,
@@ -246,6 +260,7 @@ object TtsScriptEngineClient {
         val synthesis = callEngineFunction(
             engine = engine,
             functionName = "synthesize",
+            coroutineContext = coroutineContext,
             arguments = listOf(
                 GSON.toJson(text),
                 GSON.toJson(voice.toScriptVoiceArg(voice?.styleById(styleId))),
@@ -278,6 +293,7 @@ object TtsScriptEngineClient {
         val attempts = request.retry.coerceIn(0, 3) + 1
         var lastError: Throwable? = null
         repeat(attempts) {
+            coroutineContext.ensureActive()
             try {
                 val response = executeRequest(
                     request = request,
@@ -301,6 +317,7 @@ object TtsScriptEngineClient {
                         .build()
                 }
             } catch (e: Throwable) {
+                coroutineContext.ensureActive()
                 if (e is CancellationException) throw e
                 lastError = e
             }
@@ -319,6 +336,7 @@ object TtsScriptEngineClient {
         voiceName: String?,
         coroutineContext: CoroutineContext
     ): Response {
+        coroutineContext.ensureActive()
         if (request.isWebSocket) {
             return TtsWebSocketEngineClient.execute(
                 engine = engine,
@@ -431,7 +449,8 @@ object TtsScriptEngineClient {
     private fun callEngineFunction(
         engine: TtsEngineSetting,
         functionName: String,
-        arguments: List<String> = emptyList()
+        arguments: List<String> = emptyList(),
+        coroutineContext: CoroutineContext = EmptyCoroutineContext
     ): String? {
         if (engine.script.isBlank()) {
             return null
@@ -453,7 +472,17 @@ object TtsScriptEngineClient {
                 return JSON.stringify(value);
             })();
         """.trimIndent()
-        return engine.evalJS(js)?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+        return evaluate(engine, js, coroutineContext)?.takeIf { it.isNotBlank() && it != "null" }
+    }
+
+    private fun evaluate(engine: TtsEngineSetting, js: String, context: CoroutineContext): String? {
+        context.ensureActive()
+        return try {
+            engine.evalJS(js, context)?.toString().also { context.ensureActive() }
+        } catch (e: Throwable) {
+            context.ensureActive()
+            throw e
+        }
     }
 
     private fun extensionContext(
@@ -530,6 +559,14 @@ object TtsScriptEngineClient {
                 ?: obj.stringValue("audio_path"),
             audioEncoding = obj.stringValue("audioEncoding")
                 ?: obj.stringValue("audio_encoding"),
+            responseValidation = obj.get("responseValidation")?.takeIf { it.isJsonObject }?.let {
+                val rule = it.asJsonObject
+                JsonResponseValidation(
+                    statusPath = rule.stringValue("statusPath") ?: error("响应校验缺少 statusPath"),
+                    successValue = rule.stringValue("successValue") ?: "0",
+                    messagePath = rule.stringValue("messagePath"),
+                )
+            },
             timeoutSeconds = obj.intValue("timeout")
                 ?: obj.intValue("timeoutSeconds")
                 ?: obj.intValue("timeout_seconds"),
@@ -652,7 +689,7 @@ object TtsScriptEngineClient {
             .orEmpty()
     }
 
-    private suspend fun Response.toAudioResponse(
+    internal suspend fun Response.toAudioResponse(
         request: TtsScriptRequest,
         engine: TtsEngineSetting,
         text: String,
@@ -663,7 +700,9 @@ object TtsScriptEngineClient {
         voiceName: String?,
         coroutineContext: CoroutineContext
     ): Response {
+        coroutineContext.ensureActive()
         val bodyText = body.string()
+        request.responseValidation?.let { FeatureBootstrap.features.validateTtsResponse(bodyText, it) }
         val audioValue = extractAudioValue(bodyText, request.audioExtract)
             ?: throw NoStackTraceException("脚本合成响应未找到音频字段: ${request.audioExtract.orEmpty()}")
         return when (request.normalizedAudioEncoding) {
@@ -692,6 +731,10 @@ object TtsScriptEngineClient {
             "base64", "" -> {
                 val audioBytes = audioValue.decodeBase64()?.toByteArray()
                     ?: throw NoStackTraceException("脚本合成响应音频字段不是有效 Base64")
+                if (request.responseValidation != null && audioBytes.isEmpty()) {
+                    throw NoStackTraceException("脚本合成响应音频为空")
+                }
+                coroutineContext.ensureActive()
                 newBuilder()
                     .body(audioBytes.toResponseBody(request.audioContentType?.toMediaTypeOrNull()))
                     .header("Content-Type", request.audioContentType ?: "application/octet-stream")
@@ -772,6 +815,7 @@ object TtsScriptEngineClient {
         val responseType: String? = "audio",
         val audioExtract: String? = null,
         val audioEncoding: String? = null,
+        val responseValidation: JsonResponseValidation? = null,
         val timeoutSeconds: Int? = null,
         val retry: Int = 0,
         val transport: String = "http",

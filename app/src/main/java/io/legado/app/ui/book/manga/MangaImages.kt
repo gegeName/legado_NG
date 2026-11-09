@@ -1,4 +1,5 @@
 package io.legado.app.ui.book.manga
+import io.legado.app.help.book.isPdf
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -55,6 +56,17 @@ import io.legado.app.help.glide.progress.ProgressManager
 import io.legado.app.R
 import io.legado.app.model.BookCover
 import io.legado.app.model.ReadManga
+import io.legado.app.integration.manga.NgMangaReaderBridge
+import io.legado.app.integration.manga.NgMangaTranslationBridge
+import io.legado.app.integration.manga.rememberNgMangaTranslation
+import io.legado.app.integration.manga.NgMangaLayout
+import io.legado.app.integration.manga.NgMangaSpread
+import io.legado.app.integration.manga.NgMangaSpreadImage
+import io.legado.app.integration.manga.NgMangaPdfBridge
+import io.legado.app.integration.manga.rememberNgPdfPreview
+import io.legado.features.api.manga.TranslationPageStatus
+import io.legado.app.integration.image.NgOriginalImageResources
+import io.legado.features.api.host.ResourcePriority
 import io.legado.app.ui.book.manga.entities.BaseMangaPage
 import io.legado.app.ui.book.manga.entities.EpaperTransformation
 import io.legado.app.ui.book.manga.entities.GrayscaleTransformation
@@ -77,7 +89,30 @@ import kotlin.math.roundToInt
 @Composable
 internal fun MangaImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> Unit,
     onMenu: () -> Unit, onRetryTail: () -> Unit) {
-    key(ui.paged, ui.horizontal, ui.rtl) {
+    LaunchedEffect(ui.bookUrl, ui.currentPage?.mImageUrl, ui.active) {
+        val book = ReadManga.book?.takeIf { it.bookUrl == ui.bookUrl && it.isPdf }?.copy()
+        val href = ui.currentPage?.mImageUrl
+        if (book != null && href != null && ui.active) {
+            try { NgMangaPdfBridge.window(book, href) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Visible renderer reports invalid PDF pages. */ }
+        }
+    }
+    LaunchedEffect(ui.bookUrl, ui.sourceOrigin, ui.pages, ui.active, ui.translationEnabled, ui.translationRevision) {
+        val book = ReadManga.book?.takeIf { it.bookUrl == ui.bookUrl && it.origin == ui.sourceOrigin }?.copy()
+        if (book == null || !ui.active || !ui.translationEnabled) { NgMangaTranslationBridge.stopBackground(); return@LaunchedEffect }
+        var previous = ui.currentPage?.let { ui.pages.indexOf(it) } ?: -1
+        try {
+            snapshotFlow { ui.currentPage }.collect { page ->
+                val position = page?.let { ui.pages.indexOf(it) } ?: -1
+                if (position >= 0) {
+                    NgMangaTranslationBridge.updateBackground(book, ui.pages, position, position >= previous, ui.translationRevision)
+                    previous = position
+                }
+            }
+        } finally { NgMangaTranslationBridge.stopBackground() }
+    }
+    key(ui.paged, ui.horizontal, ui.rtl, ui.doublePage) {
         if (ui.paged) MangaPagedImages(ui, onPage, onMenu, onRetryTail)
         else MangaContinuousImages(ui, onPage, onMenu, onRetryTail)
     }
@@ -87,6 +122,10 @@ internal fun MangaImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> Unit,
 @Composable
 private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> Unit,
     onMenu: () -> Unit, onRetryTail: () -> Unit) {
+    val displayPages by rememberUpdatedState(remember(ui.pages, ui.horizontal, ui.doublePage, ui.rtl) {
+        NgMangaLayout.display(ui.pages, ui.horizontal && ui.doublePage, ui.rtl)
+    })
+    val displayJump = NgMangaLayout.slot(displayPages, ui.pages.getOrNull(ui.jumpIndex), ui.jumpIndex)
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val latestPage by rememberUpdatedState(onPage)
@@ -124,14 +163,15 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
             if (!ui.scaleEnabled) { ui.scale = 1f; pan = Offset.Zero }
         }
         LaunchedEffect(ui.jumpRevision) {
-            if (ui.jumpRevision > 0 && ui.pages.isNotEmpty()) {
+            if (ui.jumpRevision > 0 && displayPages.isNotEmpty()) {
                 val revision = ui.jumpRevision
                 pendingJump = true
                 try {
-                    MangaScrollDiagnostics.event("JUMP") { "revision=$revision index=${ui.jumpIndex}" }
+                    MangaScrollDiagnostics.event("JUMP") { "revision=$revision index=${displayJump}" }
                     withFrameNanos { }
-                    list.scrollToItem(ui.jumpIndex.coerceIn(ui.pages.indices))
+                    list.scrollToItem(displayJump.coerceIn(displayPages.indices))
                     withFrameNanos { }
+                    ui.pages.getOrNull(ui.jumpIndex)?.let(latestPage)
                 } finally { if (ui.jumpRevision == revision) { appliedJump = revision; pendingJump = false } }
             }
         }
@@ -140,7 +180,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
             list.animateScrollBy(distance)
         }
         LaunchedEffect(ui.turnRevision) {
-            ui.claimTurn()?.takeIf { ui.pages.isNotEmpty() }?.let { turn(it) }
+            ui.claimTurn()?.takeIf { displayPages.isNotEmpty() }?.let { turn(it) }
         }
         LaunchedEffect(ui.autoRunning, ui.autoMode, ui.autoScrollInterval) {
             if (!ui.autoRunning) return@LaunchedEffect
@@ -167,25 +207,34 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                 else -> Unit
             }
         }
-        LaunchedEffect(ui.pages, ui.horizontal) {
+        LaunchedEffect(displayPages, ui.horizontal) {
             snapshotFlow {
                 val center = if (ui.horizontal) width / 2 - pan.x / ui.scale
                     else (height / 2 - pan.y) / ui.scale
-                if (pendingJump || appliedJump != ui.jumpRevision) null else list.layoutInfo.visibleItemsInfo
-                    .minByOrNull { abs(it.offset + it.size / 2 - center) }?.let { it.index to it.key }
+                val info = list.layoutInfo
+                val currentVisible = info.visibleItemsInfo.any { visible ->
+                    displayPages.getOrNull(visible.index)?.chapterIndex == ui.chapterIndex &&
+                        visible.offset < info.viewportEndOffset && visible.offset + visible.size > info.viewportStartOffset
+                }
+                if (pendingJump || appliedJump != ui.jumpRevision) null else info.visibleItemsInfo
+                    .minByOrNull { abs(it.offset + it.size / 2 - center) }?.let { Triple(it.index, it.key, currentVisible) }
             }.distinctUntilChanged().collect { item ->
-                item?.let { (index, key) ->
-                    if (key == mangaTailKey(ui.pages)) {
-                        mangaTailPage(ui.pages)?.let(latestPage)
-                    } else ui.pages.getOrNull(index)?.takeIf { mangaPageKey(it) == key }?.let(latestPage)
+                item?.let { (index, key, currentVisible) ->
+                    if (key == mangaTailKey(displayPages)) {
+                        mangaTailPage(displayPages)?.let { latestPage(NgMangaLayout.progress(it, ui.currentPage)) }
+                    } else displayPages.getOrNull(index)?.takeIf { mangaPageKey(it) == key }?.let { candidate ->
+                        if (io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(ui.chapterIndex, candidate.chapterIndex, currentVisible)) {
+                            latestPage(NgMangaLayout.progress(candidate, ui.currentPage))
+                        }
+                    }
                 }
             }
         }
-        LaunchedEffect(ui.pages, ui.preload, ui.active) {
+        LaunchedEffect(displayPages, ui.preload, ui.active) {
             if (!ui.active) { preloader.clear(); return@LaunchedEffect }
             var previous = list.firstVisibleItemIndex
             snapshotFlow { list.firstVisibleItemIndex }.distinctUntilChanged().collect { position ->
-                preloader.update(ui.pages, position, ui.preload, position >= previous)
+                preloader.update(displayPages, position, ui.preload, position >= previous)
                 previous = position
             }
         }
@@ -290,17 +339,18 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
             transformOrigin = TransformOrigin(0.5f, 0f)
         }
         val content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
-            items(ui.pages, key = ::mangaPageKey, contentType = { if (it is MangaPage) "image" else "edge" }) { page ->
+            items(displayPages, key = ::mangaPageKey, contentType = { if (it is MangaPage) "image" else "edge" }) { page ->
                 val modifier = if (ui.horizontal) Modifier.width(viewportWidth) else Modifier.fillMaxWidth()
                 if (page is MangaPage) MangaImage(page, ui, viewportHeight,
                     if (ui.horizontal) modifier.height(viewportHeight / ui.scale.coerceAtMost(1f)) else modifier,
                     imageRatios = imageRatios)
+                else if (page is NgMangaSpread) NgMangaSpreadImage(page, ui, viewportHeight, modifier.height(viewportHeight))
                 else if (page is ReaderLoading) Box(modifier.height(if (page.isVolume) viewportHeight else 96.dp), Alignment.Center) {
                     Text(page.mMessage.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
             // Rebase a visible tail onto newly appended chapter content instead of anchoring past it.
-            item(key = mangaTailKey(ui.pages), contentType = "tail") {
+            item(key = mangaTailKey(displayPages), contentType = "tail") {
                 Box(if (ui.horizontal) Modifier.width(viewportWidth).height(viewportHeight)
                     else Modifier.fillMaxWidth().height(48.dp), Alignment.Center) {
                     Row(Modifier.clickable(enabled = ui.tailRetry, onClick = onRetryTail), verticalAlignment = Alignment.CenterVertically) {
@@ -337,6 +387,13 @@ internal fun Modifier.mangaTouchObserver(ui: MangaReaderState): Modifier = point
 internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: androidx.compose.ui.unit.Dp,
     modifier: Modifier, paged: Boolean = false, imageRatios: MangaImageRatioCache? = null) {
     val context = LocalContext.current
+    val book = remember(ui.bookUrl, ui.sourceOrigin, ui.translationRevision) {
+        ReadManga.book?.takeIf { it.bookUrl == ui.bookUrl && it.origin == ui.sourceOrigin }?.copy()
+    }
+    val translation = rememberNgMangaTranslation(book, page.mImageUrl, page.chapterIndex.toString(), page.index,
+        ui.translationEnabled, ui.active && ui.currentPage?.chapterIndex == page.chapterIndex &&
+            (ui.currentPage?.index == page.index || paged), ui.translationRevision)
+    val pdfPreview = rememberNgPdfPreview(book, page.mImageUrl, ui.active)
     val background = colorResource(R.color.book_ant_10)
     var ratio by remember(page.mImageUrl, imageRatios) { mutableFloatStateOf(imageRatios?.get(page.mImageUrl) ?: 0f) }
     var loading by remember(page.mImageUrl) { mutableStateOf(true) }
@@ -400,13 +457,34 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
         val fit = paged || ui.horizontal
         val imageModifier = if (fit) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(imageHeight)
         Box(if (fit) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(verticalHeight), Alignment.TopCenter) {
+            pdfPreview?.takeIf { loading && !failed }?.let { preview ->
+                GlideImage(preview, "PDF 预览 ${page.index + 1}", imageModifier,
+                    contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
+                    requestBuilderTransform = { it.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE).skipMemoryCache(true) })
+            }
             key(page.mImageUrl, ui.sourceOrigin, retry, transform) {
                 GlideImage(page.mImageUrl, "${page.mChapterName} ${page.index + 1}", imageModifier,
                     contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds,
                     colorFilter = filter,
                     requestBuilderTransform = request)
             }
-            if (loading || failed) Box(Modifier.fillMaxSize().background(background), Alignment.Center) {
+            translation.file?.let { translated ->
+                key(translated, translation.revision, ui.translationRevision) {
+                    GlideImage(translated, "译图 ${page.index + 1}", imageModifier,
+                        contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
+                        requestBuilderTransform = { builder ->
+                            builder.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE).skipMemoryCache(true)
+                                .apply { if (transform != null) transform(transform) }
+                                .listener(object : RequestListener<Drawable> {
+                                    override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
+                                        translation.displayFailed(); return false
+                                    }
+                                    override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?, dataSource: DataSource, isFirstResource: Boolean) = false
+                                })
+                        })
+                }
+            }
+            if ((loading && pdfPreview == null) || failed) Box(Modifier.fillMaxSize().background(background), Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (failed) Text("重新加载", Modifier.clickable { retry++ }.padding(16.dp), color = Color.White, fontSize = 18.sp)
                     else {
@@ -414,6 +492,12 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                         Text("$progress%", Modifier.padding(top = 8.dp), color = Color.White)
                     }
                 }
+            }
+            if (ui.translationEnabled && (translation.busy || translation.failed || translation.status == TranslationPageStatus.PARTIAL)) {
+                Text(if (translation.busy) "翻译中" else if (translation.failed) "翻译失败，点此重试" else "部分译文，点此补译",
+                    Modifier.align(Alignment.BottomEnd).background(background.copy(alpha = 0.85f))
+                        .clickable(enabled = !translation.busy) { translation.retry() }.padding(8.dp),
+                    color = Color.White, fontSize = 12.sp)
             }
         }
     }
@@ -429,29 +513,20 @@ internal class MangaImagePreloader(
     private val targets = linkedMapOf<String, Target<File?>>()
     private val metadataTargets = linkedMapOf<String, Target<File?>>()
     fun update(pages: List<BaseMangaPage>, position: Int, count: Int, forward: Boolean) {
+        val plan = NgMangaReaderBridge.prefetch(pages, position, forward, if (ReadManga.book?.isPdf == true) 0 else count)
         // 只读取相邻已缓存文件的尺寸，不额外下载反方向图片。
         if (imageRatios != null) {
-            val nearby = pages.subList((position - 4).coerceIn(0, pages.size), (position + 5).coerceIn(0, pages.size))
-                .filterIsInstance<MangaPage>().map { it.mImageUrl }.filter { imageRatios.get(it) == 0f }.toSet()
+            val nearby = plan.metadata.map { it.resource }.filter { imageRatios.get(it) == 0f }.toSet()
             val metadataIterator = metadataTargets.iterator()
             while (metadataIterator.hasNext()) {
                 val entry = metadataIterator.next()
                 if (entry.key !in nearby) { Glide.with(context).clear(entry.value); metadataIterator.remove() }
             }
             for (url in nearby) if (url !in metadataTargets) {
-                metadataTargets[url] = request(url).onlyRetrieveFromCache(true).preload()
+                metadataTargets[url] = request(url).set(NgOriginalImageResources.cacheOnlyOption, true).preload()
             }
         }
-        val urls = linkedSetOf<String>()
-        val range = if (forward) maxOf(0, position + 1)..pages.lastIndex
-            else minOf(pages.lastIndex, position - 1) downTo 0
-        var remaining = count
-        for (index in range) {
-            if (remaining <= 0) break
-            val page = pages.getOrNull(index) as? MangaPage ?: continue
-            urls.add(page.mImageUrl)
-            remaining--
-        }
+        val urls = plan.network.map { it.resource }.toSet()
         val iterator = targets.iterator()
         while (iterator.hasNext()) {
             val entry = iterator.next()
@@ -464,15 +539,21 @@ internal class MangaImagePreloader(
     private fun request(url: String): RequestBuilder<File?> {
         val request = BookCover.preloadManga(context, url, sourceOrigin = sourceOrigin ?: ReadManga.book?.origin)
         if (imageRatios == null || scope == null) return request
+        val snapshot = ReadManga.book?.takeIf { sourceOrigin == null || it.origin == sourceOrigin }?.let { NgOriginalImageResources.request(it, sourceOrigin, url) }
         return request.addListener(object : RequestListener<File?> {
             override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<File?>, isFirstResource: Boolean) = false
             override fun onResourceReady(resource: File?, model: Any, target: Target<File?>?, dataSource: DataSource, isFirstResource: Boolean): Boolean {
                 if (resource != null && imageRatios.get(url) == 0f) scope.launch(Dispatchers.IO) {
                     if (imageRatios.get(url) != 0f) return@launch
-                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(resource.absolutePath, options)
-                    imageRatios.put(url, options.outWidth, options.outHeight)
-                    MangaScrollDiagnostics.event("IMAGE_METADATA") { "width=${options.outWidth} height=${options.outHeight} source=$dataSource" }
+                    if (snapshot == null) return@launch
+                    try {
+                        NgOriginalImageResources.resolve(snapshot, ResourcePriority.PREFETCH, allowNetwork = false).use { lease ->
+                            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeFile(lease.file.absolutePath, options)
+                            imageRatios.put(url, options.outWidth, options.outHeight)
+                        }
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { /* Cache eviction/version change: visible loading will retry. */ }
                 }
                 return false
             }

@@ -1,0 +1,23 @@
+plugins {
+    alias libs.plugins.android.library
+    alias libs.plugins.kotlin.android
+}
+android {
+    namespace 'io.legado.features.translation'
+    compileSdk compile_sdk_version
+    defaultConfig { minSdk 21; consumerProguardFiles 'consumer-rules.pro' }
+    kotlin { jvmToolchain(17) }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    testOptions { unitTests.returnDefaultValues = true }
+}
+dependencies {
+    api project(':lib:feature-api')
+    implementation libs.kotlinx.coroutines.core
+    implementation libs.core.ktx
+    implementation libs.okhttp
+    implementation libs.gson
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+    implementation 'com.google.mlkit:text-recognition-japanese:16.0.1'
+    implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
+    testImplementation libs.junit
+}

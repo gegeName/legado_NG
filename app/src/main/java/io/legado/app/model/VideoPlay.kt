@@ -13,6 +13,7 @@ import com.shuyu.gsyvideoplayer.listener.GSYMediaPlayerListener
 import com.shuyu.gsyvideoplayer.utils.CommonUtil
 import com.shuyu.gsyvideoplayer.video.StandardGSYVideoPlayer
 import io.legado.app.R
+import io.legado.app.integration.video.NgVideoBridge
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.EventBus
 import io.legado.app.constant.SourceType
@@ -143,11 +144,12 @@ object VideoPlay : CoroutineScope by MainScope(){
 
     fun startPlay(player: StandardGSYVideoPlayer) = startPlay(legacyTarget(player))
 
-    fun startPlay(player: VideoPlaybackTarget) {
-        if (source == null) return
+    fun startPlay(target: VideoPlaybackTarget) {
+        val source = source ?: return
         danmakuStr = null
         danmakuFile = null
         stopLoading()
+        val player = NgVideoBridge.begin(target)
         player.seekOnStart = 0
         player.loading()
         if (singleUrl) {
@@ -275,8 +277,9 @@ object VideoPlay : CoroutineScope by MainScope(){
         }
         WebBook.getContent(loadScope, source as BookSource, book, chapter)
             .onSuccess(IO) { content ->
+                val featureRequest = NgVideoBridge.resolve(player, chapter, source as BookSource, book)
                 val content = content.trim()
-                val mUrl = if (content.isEmpty()) {
+                val mUrl = featureRequest?.url ?: if (content.isEmpty()) {
                     throw ContentEmptyException("正文为空")
                 } else if (content.startsWith("<")) { //当作mpd文本
                     val name = MD5Utils.md5Encode(content) + ".mpd"
@@ -335,6 +338,7 @@ object VideoPlay : CoroutineScope by MainScope(){
      * 页面销毁了记得调用是否所有的video
      */
     fun releaseAllVideos() {
+        NgVideoBridge.invalidate()
         if (videoManager.listener() != null) {
             videoManager.listener().onCompletion()
         }

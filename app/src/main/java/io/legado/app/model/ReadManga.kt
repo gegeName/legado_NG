@@ -1,5 +1,8 @@
 package io.legado.app.model
 
+import io.legado.app.integration.image.NgOriginalImageResources
+import io.legado.app.integration.manga.NgMangaReaderBridge
+
 import io.legado.app.constant.AppLog
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
@@ -73,6 +76,9 @@ object ReadManga : CoroutineScope by MainScope() {
 
     fun resetData(book: Book) {
         synchronized(this) { loadEpoch.invalidate() }
+        NgMangaReaderBridge.stopImages()
+        ReadManga.book?.let { NgMangaReaderBridge.invalidateBook(it.bookUrl) }
+        NgOriginalImageResources.resumeBook(book.bookUrl)
         ReadingRecordTracker.bindBook(ReadingRecordKind.MANGA, book.bookUrl, book.name)
         ReadManga.book = book
         chapterSize = appDb.bookChapterDao.getChapterCount(book.bookUrl)
@@ -93,6 +99,8 @@ object ReadManga : CoroutineScope by MainScope() {
     }
 
     fun upData(book: Book) {
+        ReadManga.book?.let { NgMangaReaderBridge.invalidateBook(it.bookUrl) }
+        synchronized(this) { loadEpoch.invalidate() }
         ReadingRecordTracker.bindBook(ReadingRecordKind.MANGA, book.bookUrl, book.name)
         ReadManga.book = book
         chapterSize = appDb.bookChapterDao.getChapterCount(book.bookUrl)
@@ -125,6 +133,7 @@ object ReadManga : CoroutineScope by MainScope() {
     }
 
     fun clearMangaChapter() {
+        NgMangaReaderBridge.navigation.reset()
         prevMangaChapter = null
         curMangaChapter = null
         nextMangaChapter = null
@@ -135,6 +144,8 @@ object ReadManga : CoroutineScope by MainScope() {
         val jobs = synchronized(this) {
             if (book?.bookUrl != bookUrl) return false
             tocOrderPausedBookUrl = bookUrl
+            NgMangaReaderBridge.stopImages()
+            NgMangaReaderBridge.invalidateBook(bookUrl)
             loadEpoch.invalidate()
             preDownloadTask?.cancel()
             preDownloadTask = null
@@ -148,6 +159,7 @@ object ReadManga : CoroutineScope by MainScope() {
             pending
         }
         jobs.joinAll()
+        NgOriginalImageResources.pauseBook(bookUrl)
         val progressBarrier = CompletableDeferred<Unit>()
         executor.execute { progressBarrier.complete(Unit) }
         progressBarrier.await()
@@ -159,6 +171,7 @@ object ReadManga : CoroutineScope by MainScope() {
         if (tocOrderPausedBookUrl != updatedBook.bookUrl) return
         tocOrderPausedBookUrl = null
         if (book?.bookUrl != updatedBook.bookUrl) return
+        NgOriginalImageResources.resumeBook(updatedBook.bookUrl)
         loadEpoch.invalidate()
         book = updatedBook
         chapterSize = updatedBook.totalChapterNum
@@ -206,6 +219,7 @@ object ReadManga : CoroutineScope by MainScope() {
 
     fun loadOrUpContent() {
         if (currentLoad() == null) return
+        NgMangaReaderBridge.navigation.target()?.let { loadContent(it); return }
         if (curMangaChapter == null) {
             loadContent(durChapterIndex)
         } else {
@@ -223,7 +237,15 @@ object ReadManga : CoroutineScope by MainScope() {
         val (book, generation) = currentLoad() ?: return
         Coroutine.async(this) {
             if (!isLoadCurrent(book.bookUrl, generation)) return@async
-            val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, index) ?: return@async
+            val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, index) ?: run {
+                synchronized(this@ReadManga) {
+                    if (isLoadCurrent(book.bookUrl, generation) && NgMangaReaderBridge.navigation.target() == index) {
+                        NgMangaReaderBridge.navigation.fail(index)
+                        mCallback?.loadFail("未找到目标章节，请刷新目录")
+                    }
+                }
+                return@async
+            }
             if (addLoading(index, book.bookUrl, generation)) {
                 BookHelp.getContent(book, chapter)?.let {
                     contentLoadFinish(chapter, it, generation = generation)
@@ -235,6 +257,12 @@ object ReadManga : CoroutineScope by MainScope() {
             if (it is CancellationException) throw it
             if (isLoadCurrent(book.bookUrl, generation)) {
                 AppLog.put("加载正文出错\n${it.localizedMessage}")
+                synchronized(this@ReadManga) {
+                    if (NgMangaReaderBridge.navigation.target() == index) {
+                        NgMangaReaderBridge.navigation.fail(index)
+                        mCallback?.loadFail(it.localizedMessage ?: "加载正文失败")
+                    }
+                }
             }
         }
     }
@@ -251,9 +279,21 @@ object ReadManga : CoroutineScope by MainScope() {
     ) {
         synchronized(this) {
             if (!isLoadCurrent(chapter.bookUrl, generation)) return
+            book?.let { NgMangaReaderBridge.updateImageWindow(it, bookSource, durChapterIndex, chapterSize, generation) }
             removeLoading(chapter.index)
-            if (canceled || chapter.index !in durChapterIndex - 1..durChapterIndex + 1) return
+            if (canceled) {
+                if (NgMangaReaderBridge.navigation.target() == chapter.index) {
+                    NgMangaReaderBridge.navigation.fail(chapter.index)
+                    mCallback?.loadFail("章节加载已取消")
+                }
+                return
+            }
+            if (chapter.index !in durChapterIndex - 1..durChapterIndex + 1 && NgMangaReaderBridge.navigation.target() != chapter.index) return
             if (content == null || (content.isEmpty() && !chapter.isVolume)) {
+                if (NgMangaReaderBridge.navigation.target() == chapter.index) {
+                    NgMangaReaderBridge.navigation.fail(chapter.index)
+                    mCallback?.loadFail(if (content == null) errorMsg else "正文内容为空")
+                }
                 if (chapter.index == durChapterIndex) {
                     mCallback?.loadFail(if (content == null) errorMsg else "正文内容为空")
                 }
@@ -263,7 +303,15 @@ object ReadManga : CoroutineScope by MainScope() {
         val mangaChapter = getManageChapter(chapter, content!!)
         synchronized(this) {
             if (!isLoadCurrent(chapter.bookUrl, generation)) return
+            if (NgMangaReaderBridge.navigation.target() == chapter.index) {
+                finishChapterMove(mangaChapter)
+                return
+            }
             if (mangaChapter.imageCount == 0 && !chapter.isVolume) {
+                if (NgMangaReaderBridge.navigation.target() == chapter.index) {
+                    NgMangaReaderBridge.navigation.fail(chapter.index)
+                    mCallback?.loadFail("正文没有图片")
+                }
                 if (chapter.index == durChapterIndex) mCallback?.loadFail("正文没有图片")
                 return
             }
@@ -309,59 +357,63 @@ object ReadManga : CoroutineScope by MainScope() {
     /**
      * 加载下一章
      */
-    fun moveToNextChapter(toFirst: Boolean = false): Boolean {
+    fun moveToNextChapter(toFirst: Boolean = false): Boolean = requestChapterMove(1, toFirst)
+
+    fun moveToPrevChapter(toFirst: Boolean = false): Boolean = requestChapterMove(-1, toFirst)
+
+    private fun requestChapterMove(direction: Int, toFirst: Boolean): Boolean {
         if (currentLoad() == null) return false
-        if (durChapterIndex < simulatedChapterSize - 1) {
-            if (toFirst) {
-                mCallback?.showLoading()
-                durChapterPos = 0
-            }
-            durChapterIndex++
+        val request = NgMangaReaderBridge.navigation.request(durChapterIndex, simulatedChapterSize, direction, toFirst) ?: return false
+        val target = if (direction > 0) nextMangaChapter else prevMangaChapter
+        if (target != null) finishChapterMove(target)
+        else {
+            mCallback?.showLoading()
+            loadContent(request.chapter)
+        }
+        return true
+    }
+
+    private fun finishChapterMove(target: MangaChapter) {
+        val chapter = target.chapter.index
+        val navigation = NgMangaReaderBridge.navigation
+        if (target.imageCount == 0 && target.chapter.isVolume) {
+            val next = navigation.skipEmpty(chapter, simulatedChapterSize)
+            if (next != null) { mCallback?.showLoading(); loadContent(next.chapter) }
+            else mCallback?.loadFail("未找到可阅读章节，已到达目录边界或连续空分卷过多")
+            return
+        }
+        val landing = navigation.ready(chapter, target.imageCount)
+        if (landing != null) applyChapterLanding(target, landing.page)
+        else { navigation.fail(chapter); mCallback?.loadFail("正文没有图片") }
+    }
+
+    /** Maps the module's committed target onto NG's existing chapter slots. */
+    private fun applyChapterLanding(target: MangaChapter, page: Int) {
+        val chapter = target.chapter.index
+        val direction = chapter - durChapterIndex
+        if (direction == 1) {
             prevMangaChapter = curMangaChapter
-            curMangaChapter = nextMangaChapter
             nextMangaChapter = null
-            if (curMangaChapter == null) {
-                mCallback?.startLoad()
-                loadContent(durChapterIndex)
-            } else {
-                mCallback?.upContent()
-            }
-            loadContent(durChapterIndex + 1)
-            saveRead()
-            AppLog.putDebug("moveToNextChapter-curPageChanged()")
-            curPageChanged()
-            return true
-        } else {
-            AppLog.putDebug("跳转下一章失败,没有下一章")
-            return false
-        }
-    }
-
-    fun moveToPrevChapter(toFirst: Boolean = false): Boolean {
-        if (currentLoad() == null) return false
-        if (durChapterIndex > 0) {
-            if (toFirst) {
-                mCallback?.showLoading()
-                durChapterPos = 0
-            }
-            durChapterIndex--
+        } else if (direction == -1) {
             nextMangaChapter = curMangaChapter
-            curMangaChapter = prevMangaChapter
             prevMangaChapter = null
-            if (curMangaChapter == null) {
-                loadContent(durChapterIndex)
-            } else {
-                mCallback?.upContent()
-            }
-            loadContent(durChapterIndex - 1)
-            saveRead()
-            return true
+        } else {
+            prevMangaChapter = null
+            nextMangaChapter = null
         }
-        return false
+        curMangaChapter = target
+        durChapterIndex = chapter
+        durChapterPos = page
+        mCallback?.showLoading()
+        mCallback?.upContent()
+        loadContent(chapter + 1)
+        loadContent(chapter - 1)
+        saveRead()
+        curPageChanged()
     }
-
     fun curPageChanged() {
         upReadTime()
+        currentLoad()?.let { (book, generation) -> NgMangaReaderBridge.updateImageWindow(book, bookSource, durChapterIndex, chapterSize, generation) }
         preDownload()
     }
 
@@ -426,7 +478,8 @@ object ReadManga : CoroutineScope by MainScope() {
         if (requestBook.isLocal) return
         executor.execute {
             if (!isLoadCurrent(requestBook.bookUrl, generation)) return@execute
-            if (AppConfig.preDownloadNum < 2) {
+            val window = NgMangaReaderBridge.chapterWindow(durChapterIndex, chapterSize)
+            if (window.isEmpty() || (window.first >= durChapterIndex - 1 && window.last <= durChapterIndex + 1)) {
                 upToc()
                 return@execute
             }
@@ -434,8 +487,7 @@ object ReadManga : CoroutineScope by MainScope() {
             preDownloadTask = launch(IO) {
                 //预下载
                 launch {
-                    val maxChapterIndex =
-                        min(durChapterIndex + AppConfig.preDownloadNum, chapterSize)
+                    val maxChapterIndex = window.last
                     for (i in durChapterIndex.plus(2)..maxChapterIndex) {
                         if (downloadedChapters.contains(i)) continue
                         if ((downloadFailChapters[i] ?: 0) >= 3) continue
@@ -443,7 +495,7 @@ object ReadManga : CoroutineScope by MainScope() {
                     }
                 }
                 launch {
-                    val minChapterIndex = durChapterIndex - min(5, AppConfig.preDownloadNum)
+                    val minChapterIndex = window.first
                     for (i in durChapterIndex.minus(2) downTo minChapterIndex) {
                         if (downloadedChapters.contains(i)) continue
                         if ((downloadFailChapters[i] ?: 0) >= 3) continue
@@ -649,6 +701,8 @@ object ReadManga : CoroutineScope by MainScope() {
     fun unregister(cb: Callback) {
         if (mCallback === cb) {
             mCallback = null
+            NgMangaReaderBridge.stopImages()
+            book?.let { NgMangaReaderBridge.invalidateBook(it.bookUrl) }
         }
         preDownloadTask?.cancel()
         preDownloadTask = null

@@ -1,0 +1,45 @@
+// Checks intermediate classes/merged manifest; intentionally does not assemble an APK.
+gradle.projectsEvaluated {
+    def appProject = project(':app')
+    def runtime = appProject.configurations.getByName('appDebugRuntimeClasspath')
+    def classes = runtime.incoming.artifactView {
+        attributes { attribute(Attribute.of('artifactType', String), 'android-classes-jar') }
+    }.files
+    tasks.register('verifyFeatureArtifacts') {
+        group = 'verification'
+        description = 'Inspect feature ABI owners, optional dependencies and merged manifest'
+        dependsOn classes
+        dependsOn ':app:processAppDebugMainManifest'
+        inputs.files(classes)
+        doLast {
+            def owners = [:].withDefault { [] }
+            def prefixes = ['eu/kanade/tachiyomi/', 'uy/kohesive/injekt/', 'com/github/catvod/']
+            classes.files.each { jar ->
+                if (!jar.name.endsWith('.jar')) return
+                new java.util.zip.ZipFile(jar).withCloseable { zip ->
+                    zip.entries().each { entry ->
+                        if (entry.name.endsWith('.class') && prefixes.any { entry.name.startsWith(it) }) owners[entry.name] << jar.path
+                    }
+                }
+            }
+            def violations = owners.findAll { _, files -> files.size() > 1 }.collect { name, files -> "duplicate ABI $name: $files" }
+            ['eu/kanade/tachiyomi/source/Source.class', 'eu/kanade/tachiyomi/animesource/AnimeSource.class', 'com/github/catvod/crawler/Spider.class'].each { name ->
+                if (owners[name].size() != 1) violations << "missing shared ABI $name"
+            }
+            def projects = runtime.incoming.resolutionResult.allComponents.collect { it.id.displayName }
+            ['legadoPdf': 'manga-pdf-support', 'legadoVideoEffects': 'video-player-media3'].each { property, module ->
+                def enabled = providers.gradleProperty(property).getOrElse('true') == 'true'
+                if (projects.contains("project :lib:$module".toString()) != enabled) violations << "optional module mismatch: $module"
+            }
+            def manifestFile = appProject.file('build/intermediates/merged_manifest/appDebug/processAppDebugMainManifest/AndroidManifest.xml')
+            def manifest = new XmlSlurper(false, false).parse(manifestFile)
+            if (manifest.'uses-sdk'.@'android:minSdkVersion'.text() != '21') violations << 'merged minSdk changed from 21'
+            def worker = manifest.application.service.find { it.@'android:name'.text() == 'io.legado.features.tvbox.js.TvBoxJsService' }
+            if (!worker || worker.@'android:exported'.text() != 'false' || worker.@'android:isolatedProcess'.text() != 'true') violations << 'invalid TVBox JS worker declaration'
+            def authorities = manifest.application.provider.collect { it.@'android:authorities'.text() }.findAll { it }
+            if (authorities.size() != authorities.toSet().size()) violations << 'duplicate provider authority'
+            if (!violations.isEmpty()) throw new GradleException(violations.join('\n'))
+            logger.lifecycle("Feature intermediate artifacts OK (${owners.size()} shared ABI classes, minSdk 21, isolated JS worker, optional dependencies). DEX/R8/native runtime are not asserted.")
+        }
+    }
+}

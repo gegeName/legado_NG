@@ -17,6 +17,7 @@ import io.legado.app.help.http.okHttpClient
 import io.legado.app.help.source.SourceHelp
 import io.legado.app.help.source.clearExploreKindsCache
 import io.legado.app.help.storage.ImportOldData
+import io.legado.app.integration.source.NgSourceImportAdapter
 import io.legado.app.model.SharedJsScope
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonArray
@@ -112,6 +113,9 @@ class BookSourceEditViewModel(application: Application) : BaseViewModel(applicat
     }
 
     suspend fun importSource(text: String): BookSource {
+        val decompressed = NgSourceImportAdapter.decompress(text)
+        if (decompressed != text) return importSource(decompressed)
+        NgSourceImportAdapter.convertOrNull(text)?.let { return it.first() }
         return when {
             text.isAbsUrl() -> {
                 val text1 = okHttpClient.newCallStrResponse { url(text) }.body

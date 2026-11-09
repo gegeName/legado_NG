@@ -326,6 +326,11 @@ interface BaseSource : JsExtensions {
      */
     @Throws(Exception::class)
     fun evalJS(jsStr: String, bindingsConfig: ScriptBindings.() -> Unit = {}): Any? {
+        return evalJS(jsStr, null, bindingsConfig)
+    }
+
+    /** Explicit job binding for hosts with network calls during script preparation. */
+    fun evalJS(jsStr: String, coroutineContext: kotlin.coroutines.CoroutineContext?, bindingsConfig: ScriptBindings.() -> Unit = {}): Any? {
         return this.withBookSourceClassPolicy {
             val bindings = buildScriptBindings { bindings ->
                 bindings["java"] = this
@@ -336,9 +341,9 @@ interface BaseSource : JsExtensions {
                 bindings["cache"] = this.scriptCacheObject()
                 bindings.apply(bindingsConfig)
             }
-            val sharedScope = getShareScope() ?: SharedJsScope.getCryptoScope(
+            val sharedScope = getShareScope(coroutineContext) ?: SharedJsScope.getCryptoScope(
                 scopeNamespace = getKey(),
-                coroutineContext = null,
+                coroutineContext = coroutineContext,
                 bookSourceClassPolicy = this is BookSource,
                 bookSourceLabel = getTag(),
             )
@@ -349,7 +354,7 @@ interface BaseSource : JsExtensions {
                     chainTo(sharedScope)
                 }
             }
-            RhinoScriptEngine.eval(jsStr, scope)
+            RhinoScriptEngine.eval(jsStr, scope, coroutineContext)
         }
     }
 }

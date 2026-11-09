@@ -100,14 +100,25 @@ class BookChapterCacheTest {
         val imageNames = File(fixture.directory, "images").list()!!.toSet()
         assertEquals(setOf(pngFile.name, svgFile.name), imageNames)
 
-        // If a complete image is fetched/decrypted again, this rule makes it fail.
-        fixture.source.ruleContent = ContentRule(imageDecode = "null")
+        // Unchanged request/decryption configuration reuses the canonical cache.
         val pngModified = pngFile.lastModified()
         val svgModified = svgFile.lastModified()
         fixture.complete(content)
         assertEquals(pngModified, pngFile.lastModified())
         assertEquals(svgModified, svgFile.lastModified())
         assertArrayEquals(textBefore, fixture.contentFile.readBytes())
+    }
+
+    @Test
+    fun changedDecodeConfigurationCannotReuseOldVersionOrReplaceItWithFailure() = runBlocking {
+        val fixture = fixture()
+        val bytes = png()
+        val url = dataUrl(bytes)
+        BookHelp.saveImageForCache(fixture.source, fixture.book, url, fixture.chapter)
+        val image = BookHelp.getImage(fixture.book, url)
+        fixture.source.ruleContent = ContentRule(imageDecode = "null")
+        expectIOException { BookHelp.saveImageForCache(fixture.source, fixture.book, url, fixture.chapter) }
+        assertArrayEquals(bytes, image.readBytes())
     }
 
     @Test

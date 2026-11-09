@@ -41,6 +41,7 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.help.gsyVideo.VideoPlaybackBridge
 import io.legado.app.help.gsyVideo.VideoPlaybackState
 import io.legado.app.model.VideoPlay
+import io.legado.app.integration.video.NgVideoCaptions
 import io.legado.app.ui.design.components.compose.*
 import io.legado.app.ui.design.components.NgDialogVariant
 import io.legado.app.ui.design.theme.NgTheme
@@ -101,6 +102,7 @@ fun VideoPlayerScreen(
             Box(Modifier.fillMaxWidth().height(playerHeight).background(Color.Black)) {
                 VideoRenderHost(owner, state, danmaku,
                     Modifier.align(Alignment.Center).width(fitWidth).height(fitWidth / state.aspect))
+                NgVideoCaptions(Modifier.align(Alignment.Center).width(fitWidth).height(fitWidth / state.aspect))
                 // 全屏画布使用完整窗口，控件和手势单独避让安全区。
                 Box(Modifier.matchParentSize().then(
                     if (windowed) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing)

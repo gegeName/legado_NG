@@ -8,6 +8,7 @@ import cn.hutool.crypto.symmetric.SymmetricCrypto
 import io.legado.app.help.crypto.AsymmetricCrypto
 import io.legado.app.help.crypto.Sign
 import io.legado.app.help.crypto.SymmetricCryptoAndroid
+import io.legado.app.integration.FeatureBootstrap
 import io.legado.app.utils.MD5Utils
 
 
@@ -17,6 +18,15 @@ import io.legado.app.utils.MD5Utils
  */
 @Suppress("unused")
 interface JsEncodeUtils {
+
+    fun decryptESBytes(mode: String, bm: String?, data: Any?, key: String, iv: String): ByteArray? =
+        FeatureBootstrap.features.decryptBytes(mode, data, key, iv)
+    fun decryptAESBytes(mode: String, bm: String?, data: Any?, key: String, iv: String): ByteArray? =
+        FeatureBootstrap.features.decryptBytes(mode, data, key, iv)
+    fun decryptES(mode: String, bm: String?, data: Any?, key: String, iv: String): String? =
+        FeatureBootstrap.features.decryptText(mode, data, key, iv)
+    fun decryptAES(mode: String, bm: String?, data: Any?, key: String, iv: String): String? =
+        FeatureBootstrap.features.decryptText(mode, data, key, iv)
 
     @JavascriptInterface
     fun md5Encode(str: String): String {

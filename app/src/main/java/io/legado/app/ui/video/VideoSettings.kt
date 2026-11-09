@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import io.legado.app.R
 import io.legado.app.model.VideoPlay
+import io.legado.app.integration.video.NgVideoFeatureSettings
 import io.legado.app.ui.design.components.NgDialogVariant
 import io.legado.app.ui.design.components.compose.NgDialog
 import io.legado.app.ui.design.components.compose.NgDialogTextActionButton
@@ -55,6 +56,7 @@ internal fun VideoSettings(onDismiss: () -> Unit) {
             NgDialog(stringResource(R.string.config_settings), variant = NgDialogVariant.CLASSIC_CONFIRMATION,
                 titleFontSize = 18.sp, titleFontWeight = FontWeight.Medium, actions = {}) {
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    NgVideoFeatureSettings()
                     VideoSettingCheck(stringResource(R.string.auto_play), auto) { auto = it; VideoPlay.autoPlay = it }
                     if (auto) VideoSettingCheck(stringResource(R.string.start_full), full) { full = it; VideoPlay.startFull = it }
                     VideoSettingCheck(stringResource(R.string.full_bottom_progress), progress) { progress = it; VideoPlay.fullBottomProgressBar = it }

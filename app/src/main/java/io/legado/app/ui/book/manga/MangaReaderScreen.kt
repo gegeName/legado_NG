@@ -353,6 +353,12 @@ private fun MangaModule(state: MangaReaderState, onSetting: (MangaSetting, Int) 
                     MangaSwitch("章节提示", state.chapterHints) { onSetting(MangaSetting.HINTS, it) }
                     MangaDivider()
                     MangaNumber("预加载图片", state.preload, "张", 0, 9999) { onSetting(MangaSetting.PRELOAD, it) }
+                    MangaSwitch("横向双页", state.doublePage) { onSetting(MangaSetting.DOUBLE_PAGE, it) }
+                    if (io.legado.app.integration.manga.NgMangaPdfBridge.available) MangaNumber("PDF 预览预取（0 关闭）", state.pdfAhead, "页", 0, 16) { onSetting(MangaSetting.PDF_AHEAD, it) }
+                    MangaNumber("后续章节正文预取", state.chapterAhead, "章", 0, 100) { onSetting(MangaSetting.CHAPTER_AHEAD, it) }
+                    MangaNumber("前序章节正文预取", state.chapterBehind, "章", 0, 100) { onSetting(MangaSetting.CHAPTER_BEHIND, it) }
+                    MangaNumber("章节原图预取（0 关闭）", state.imageChapters, "章", 0, 100) { onSetting(MangaSetting.IMAGE_CHAPTERS, it) }
+                    MangaLink("漫画翻译") { onAction(MangaAction.TRANSLATION_SETTINGS) }
                     MangaLink("原网页") { onAction(MangaAction.OPEN_WEB) }
                     MangaLink("网页打开方式") { onAction(MangaAction.WEB_MODE) }
                 }

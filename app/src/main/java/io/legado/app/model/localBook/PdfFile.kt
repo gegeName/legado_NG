@@ -6,6 +6,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.core.graphics.createBitmap
 import io.legado.app.constant.AppLog
+import io.legado.app.integration.manga.NgMangaPdfBridge
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.help.book.getLocalUri
@@ -63,7 +64,7 @@ class PdfFile(var book: Book) {
 
         @Synchronized
         override fun getImage(book: Book, href: String): InputStream? {
-            return getPFile(book).getImage(href)
+            return if (NgMangaPdfBridge.available) NgMangaPdfBridge.open(book, href) else getPFile(book).getImage(href)
         }
 
     }

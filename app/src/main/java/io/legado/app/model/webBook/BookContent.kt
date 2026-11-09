@@ -1,5 +1,7 @@
 package io.legado.app.model.webBook
 
+import io.legado.app.integration.rule.NgYiciyuanBridge
+
 import io.legado.app.R
 import io.legado.app.constant.AppPattern
 import io.legado.app.data.appDb
@@ -232,6 +234,9 @@ object BookContent {
         analyzeRule.setChapter(chapter)
         //获取正文
         var content = analyzeRule.getString(contentRule.content, unescape = false)
+        if (bookSource.bookSourceType == io.legado.app.constant.BookSourceType.image) {
+            content = NgYiciyuanBridge.policy(bookSource).formatImageContent(content)
+        }
         if (!book.isAudio && !book.isVideo) { //音频和视频获取的是链接，不需要html格式化
             val useHtmlMap = mutableMapOf<String, String>()
             if (AppConfig.adaptSpecialStyle) {

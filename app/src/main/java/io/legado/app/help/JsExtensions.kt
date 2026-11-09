@@ -14,6 +14,8 @@ import io.legado.app.constant.AppPattern
 import io.legado.app.data.entities.BaseSource
 import io.legado.app.data.entities.BookSource
 import io.legado.app.exception.NoStackTraceException
+import io.legado.app.integration.rule.NgYiciyuanBridge
+import io.legado.app.integration.FeatureBootstrap
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.http.BackstageWebView
 import io.legado.app.help.http.BookSourceCookieStore
@@ -99,6 +101,15 @@ interface JsExtensions : JsEncodeUtils {
 
     fun getSource(): BaseSource?
     fun getTag(): String?
+
+    fun aJax(url: Any): String? = ajax(url)
+    fun fetch(url: Any): Any = fetch(url, null)
+    fun fetch(url: Any, options: Any?): Any = NgYiciyuanBridge.fetch(url, options, getSource(), context)
+    fun match(text: Any?, regex: Any?): Array<String> = FeatureBootstrap.features.match(text, regex)
+    fun match(text: Any?, regex: Any?, index: Int): String? = match(text, regex).getOrNull(index)
+    fun match(text: Any?, regex: Any?, index: Double): String? = match(text, regex, index.toInt())
+    fun get(value: Any?, key: String): String? = FeatureBootstrap.features.get(value, key)
+    fun webView(url: String?, js: String?): String? = webView(null, url, js)
 
     private fun bookSourceFileRoot(): File? {
         val source = getSource() as? BookSource ?: return null

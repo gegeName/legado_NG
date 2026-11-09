@@ -17,6 +17,8 @@ import io.legado.app.help.config.AppConfig
 import io.legado.app.model.localBook.EpubFile
 import io.legado.app.model.localBook.MobiFile
 import io.legado.app.model.localBook.PdfFile
+import io.legado.app.integration.image.NgOriginalImageResources
+import io.legado.features.api.host.ResourcePriority
 import io.legado.app.utils.BitmapUtils
 import io.legado.app.utils.FileUtils
 import io.legado.app.utils.SvgUtils
@@ -126,6 +128,9 @@ object ImageProvider {
         bookSource: BookSource?
     ): File {
         return withContext(IO) {
+            if (!book.isEpub && !book.isPdf && !book.isMobi) {
+                return@withContext NgOriginalImageResources.resolve(book, bookSource, src, ResourcePriority.VISIBLE).use { it.file }
+            }
             val vFile = BookHelp.getImage(book, src)
             if (!BookHelp.isImageExist(book, src)) {
                 val inputStream = when {
@@ -157,6 +162,8 @@ object ImageProvider {
         bookSource: BookSource?
     ): Size {
         val file = cacheImage(book, src, bookSource)
+        val lease = NgOriginalImageResources.borrow(file) ?: return Size(errorBitmap.width, errorBitmap.height)
+        return lease.use {
         val op = BitmapFactory.Options()
         // inJustDecodeBounds如果设置为true,仅仅返回图片实际的宽和高,宽和高是赋值给opts.outWidth,opts.outHeight;
         op.inJustDecodeBounds = true
@@ -169,7 +176,8 @@ object ImageProvider {
             //file.delete() 重复下载
             return Size(errorBitmap.width, errorBitmap.height)
         }
-        return Size(op.outWidth, op.outHeight)
+        Size(op.outWidth, op.outHeight)
+        }
     }
 
     /**
@@ -183,21 +191,24 @@ object ImageProvider {
     ): Bitmap {
         if (src.isBlank()) return errorBitmap
         val vFile = BookHelp.getImage(book, src)
-        if (!vFile.exists()) return errorBitmap
+        val lease = NgOriginalImageResources.borrow(vFile) ?: return errorBitmap
+        return lease.use {
+        val cacheKey = if (lease.version.isEmpty()) vFile.absolutePath else vFile.absolutePath + ":" + lease.version
         //epub文件提供图片链接是相对链接，同时阅读多个epub文件，缓存命中错误
         //bitmapLruCache的key同一改成缓存文件的路径
-        val cacheBitmap = getNotRecycled(vFile.absolutePath)
+        val cacheBitmap = getNotRecycled(cacheKey)
         if (cacheBitmap != null) return cacheBitmap
-        return kotlin.runCatching {
+        kotlin.runCatching {
             val bitmap = BitmapUtils.decodeBitmap(vFile.absolutePath, width, height)
                 ?: SvgUtils.createBitmap(vFile.absolutePath, width, height)
                 ?: throw NoStackTraceException(appCtx.getString(R.string.error_decode_bitmap))
-            put(vFile.absolutePath, bitmap)
+            put(cacheKey, bitmap)
             bitmap
         }.onFailure {
             //错误图片占位,防止重复获取
-            put(vFile.absolutePath, errorBitmap)
+            put(cacheKey, errorBitmap)
         }.getOrDefault(errorBitmap)
+        }
     }
 
     fun clear() {

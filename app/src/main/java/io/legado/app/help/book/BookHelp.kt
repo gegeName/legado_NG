@@ -1,9 +1,12 @@
 package io.legado.app.help.book
 
+import io.legado.app.integration.image.NgOriginalImageResources
+import io.legado.app.integration.manga.NgMangaReaderBridge
+import io.legado.features.api.host.ResourcePriority
+
 import android.graphics.BitmapFactory
 import android.os.ParcelFileDescriptor
 import androidx.documentfile.provider.DocumentFile
-import com.script.rhino.runScriptWithContext
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
 import io.legado.app.constant.EventBus
@@ -13,11 +16,9 @@ import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.exoplayer.AudioDownloadCache
-import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.utils.ArchiveUtils
 import io.legado.app.utils.FileUtils
-import io.legado.app.utils.ImageUtils
 import io.legado.app.utils.MD5Utils
 import io.legado.app.utils.NetworkUtils
 import io.legado.app.utils.StringUtils
@@ -38,7 +39,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import org.apache.commons.text.similarity.JaccardSimilarity
 import splitties.init.appCtx
@@ -47,7 +47,6 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
-import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Pattern
 import java.util.zip.ZipFile
 import kotlin.math.abs
@@ -60,21 +59,18 @@ object BookHelp {
     private const val cacheFolderName = "book_cache"
     private const val cacheImageFolderName = "images"
     private const val cacheEpubFolderName = "epub"
-    private val downloadImages = ConcurrentHashMap<String, Mutex>()
 
     val cachePath = FileUtils.getPath(downloadDir, cacheFolderName)
 
     fun clearCache() {
         AudioDownloadCache.clearAll()
-        FileUtils.delete(
-            FileUtils.getPath(downloadDir, cacheFolderName)
-        )
+        NgOriginalImageResources.clearDirectory(File(cachePath))
     }
 
     fun clearCache(book: Book) {
         if (book.isAudio) AudioDownloadCache.clearBook(book)
         val filePath = FileUtils.getPath(downloadDir, cacheFolderName, book.getFolderName())
-        FileUtils.delete(filePath)
+        NgOriginalImageResources.clearDirectory(File(filePath), book.bookUrl)
     }
 
     fun updateCacheFolder(oldBook: Book, newBook: Book) {
@@ -109,7 +105,7 @@ object BookHelp {
             downloadDir.getFile(cacheFolderName)
                 .listFiles()?.forEach { bookFile ->
                     if (!bookFolderNames.contains(bookFile.name)) {
-                        FileUtils.delete(bookFile.absolutePath)
+                        NgOriginalImageResources.clearDirectory(bookFile)
                     }
                 }
             downloadDir.getFile(cacheEpubFolderName)
@@ -135,7 +131,7 @@ object BookHelp {
         }
         //向前保留设定数量，向后保留预下载数量
         val startIndex = book.durChapterIndex - AppConfig.imageRetainNum
-        val endIndex = book.durChapterIndex + AppConfig.preDownloadNum
+        val endIndex = book.durChapterIndex + NgMangaReaderBridge.retainedAhead()
         val chapterList = appDb.bookChapterDao.getChapterList(book.bookUrl, startIndex, endIndex)
         val imgNames = hashSetOf<String>()
         //获取需要保留章节的图片信息
@@ -156,7 +152,7 @@ object BookHelp {
             cacheImageFolderName
         ).listFiles()?.forEach { imgFile ->
             if (!imgNames.contains(imgFile.name)) {
-                imgFile.delete()
+                NgOriginalImageResources.discardAutomatic(imgFile)
             }
         }
     }
@@ -257,54 +253,18 @@ object BookHelp {
         chapter: BookChapter?,
         strict: Boolean,
     ) {
-        fun hasCachedImage() = if (strict) {
-            getCachedBookImage(book, src) != null
-        } else {
-            isImageExist(book, src)
-        }
-        if (strict) currentCoroutineContext().ensureActive()
-        if (hasCachedImage()) {
-            return
-        }
-        val mutex = synchronized(this) {
-            downloadImages.getOrPut(src) { Mutex() }
-        }
-        mutex.lock()
         try {
-            if (hasCachedImage()) {
-                return
-            }
-            val analyzeUrl = AnalyzeUrl(
-                src, source = bookSource, coroutineContext = currentCoroutineContext()
-            )
-            val bytes = analyzeUrl.getByteArrayAwait()
-            //某些图片被加密，需要进一步解密
-            val decoded = runScriptWithContext {
-                ImageUtils.decode(
-                    src, bytes, isCover = false, bookSource, book
-                )
-            }
-            if (strict) {
-                if (decoded == null) throw IOException("漫画图片解密失败")
-                writeImageForCache(book, src, decoded)
+            NgOriginalImageResources.resolve(book, bookSource, src, ResourcePriority.PREFETCH).use {
                 currentCoroutineContext().ensureActive()
-            } else decoded?.let {
-                if (!checkImage(it)) {
-                    // 如果部分图片失效，每次进入正文都会花很长时间再次获取图片数据
-                    // 所以无论如何都要将数据写入到文件里
-                    // throw NoStackTraceException("数据异常")
-                    AppLog.put("${book.name} ${chapter?.title} 图片 $src 下载错误 数据异常")
-                }
-                writeImage(book, src, it)
+                if (strict) NgOriginalImageResources.pin(book, src)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
             if (strict) throw e
             val msg = "${book.name} ${chapter?.title} 图片 $src 下载失败\n${e.localizedMessage}"
             AppLog.put(msg, e)
-        } finally {
-            downloadImages.remove(src)
-            mutex.unlock()
         }
     }
 
@@ -320,34 +280,6 @@ object BookHelp {
     @Synchronized
     fun writeImage(book: Book, src: String, bytes: ByteArray) {
         getImage(book, src).createFileIfNotExist().writeBytes(bytes)
-    }
-
-    private fun writeImageForCache(book: Book, src: String, bytes: ByteArray) {
-        val file = getImage(book, src)
-        val parent = file.parentFile ?: throw IOException("无法创建图片缓存目录")
-        if (!parent.isDirectory && !parent.mkdirs() && !parent.isDirectory) {
-            throw IOException("无法创建图片缓存目录")
-        }
-        val temporary = File.createTempFile(".${file.name}.", ".tmp", parent)
-        try {
-            temporary.writeBytes(bytes)
-            if (getCachedBookImage(temporary) == null) {
-                throw IOException("图片下载后校验失败")
-            }
-            synchronized(this) {
-                if (getCachedBookImage(file) != null) return
-                // 同目录完成后才替换目标，失败的写入不会留下可被误认的半张图片。
-                if (!temporary.renameTo(file)) {
-                    // 部分文件系统不能直接覆盖已有文件，只移除已确认无效的单个图片。
-                    if (file.exists() && (!file.isFile || !file.delete())) {
-                        throw IOException("无法替换无效的图片缓存")
-                    }
-                    if (!temporary.renameTo(file)) throw IOException("无法保存图片缓存")
-                }
-            }
-        } finally {
-            temporary.delete()
-        }
     }
 
     @Synchronized

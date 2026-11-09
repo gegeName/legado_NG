@@ -16,6 +16,7 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.RssArticle
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.JsExtensions
+import io.legado.app.integration.rule.NgYiciyuanBridge
 import io.legado.app.help.http.BackstageWebView
 import io.legado.app.help.http.BookSourceCookieStore
 import io.legado.app.help.source.scriptCacheObject
@@ -64,6 +65,8 @@ class AnalyzeRule(
 ) : JsExtensions {
 
     private val book get() = ruleData as? BaseBook
+    private val isYiciyuanSource get() = NgYiciyuanBridge.isAdapterSource(source)
+    private val compatibility get() = NgYiciyuanBridge.policy(source)
     private val rssArticle get() = ruleData as? RssArticle
 
     private var chapter: BookChapter? = null
@@ -160,8 +163,9 @@ class AnalyzeRule(
      * 获取JSON解析类
      */
     private fun getAnalyzeByJSonPath(o: Any): AnalyzeByJSonPath {
-        return if (o != content) {
-            AnalyzeByJSonPath(o)
+        val jsonContent = compatibility.unwrapContent(o)
+        return if (jsonContent != content) {
+            AnalyzeByJSonPath(jsonContent)
         } else {
             if (analyzeByJSonPath == null) {
                 analyzeByJSonPath = AnalyzeByJSonPath(content!!)
@@ -213,7 +217,7 @@ class AnalyzeRule(
         val content = mContent ?: this.content
         if (content != null && ruleList.isNotEmpty()) {
             result = content
-            if (result is NativeObject) {
+            if (result is NativeObject && !isYiciyuanSource) {
                 val sourceRule = ruleList.first()
                 putRule(sourceRule.putMap)
                 sourceRule.makeUpRule(result)
@@ -269,6 +273,8 @@ class AnalyzeRule(
         if (result == null) return null
         if (result is String) {
             result = result.split("\n")
+        } else if (isYiciyuanSource) {
+            result = compatibility.normalizeResult(result)
         }
         if (isUrl) {
             val urlList = ArrayList<String>()
@@ -302,6 +308,14 @@ class AnalyzeRule(
         return getString(ruleList, unescape = unescape)
     }
 
+    fun getStringSafe(ruleStr: String?): String = try {
+        getString(ruleStr)
+    } catch (error: Exception) {
+        coroutineContext.ensureActive()
+        if (error is java.util.concurrent.CancellationException) throw error
+        ""
+    }
+
     @JvmOverloads
     fun getString(
         ruleList: List<SourceRule>,
@@ -313,7 +327,7 @@ class AnalyzeRule(
         val content = mContent ?: this.content
         if (content != null && ruleList.isNotEmpty()) {
             result = content
-            if (result is NativeObject) {
+            if (result is NativeObject && !isYiciyuanSource) {
                 val sourceRule = ruleList.first()
                 putRule(sourceRule.putMap)
                 sourceRule.makeUpRule(result)
@@ -357,7 +371,7 @@ class AnalyzeRule(
             }
         }
         if (result == null) result = ""
-        val resultStr = result.toString()
+        val resultStr = compatibility.formatResult(result)
         val str = if (unescape && resultStr.indexOf('&') > -1) {
             StringEscapeUtils.unescapeHtml4(resultStr)
         } else {
@@ -436,6 +450,7 @@ class AnalyzeRule(
                 }
             }
         }
+        if (isYiciyuanSource) return compatibility.elements(result)
         result?.let {
             return it as List<Any>
         }
@@ -533,6 +548,8 @@ class AnalyzeRule(
      */
     fun splitSourceRule(ruleStr: String?, allInOne: Boolean = false): List<SourceRule> {
         if (ruleStr.isNullOrEmpty()) return emptyList()
+        val prepared = compatibility.prepareRule(ruleStr, source?.getKey().orEmpty())
+        if (prepared != ruleStr) return splitSourceRule(prepared, allInOne)
         val ruleList = ArrayList<SourceRule>()
         var mMode: Mode = Mode.Default
         var start = 0

@@ -5,6 +5,7 @@ import io.legado.app.data.entities.BaseSource
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.RssSource
+import io.legado.app.integration.rule.NgYiciyuanBridge
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 
@@ -23,6 +24,9 @@ object ImageUtils {
     ): ByteArray? {
         val ruleJs = getRuleJs(source, isCover)
         if (ruleJs.isNullOrBlank()) return bytes
+        if (source is BookSource && NgYiciyuanBridge.isAdapterSource(source)) {
+            return NgYiciyuanBridge.decodeImageBytes(source, ruleJs, bytes, src, book)
+        }
         //解密库hutool.crypto ByteArray|InputStream -> ByteArray
         return kotlin.runCatching {
             source?.evalJS(ruleJs) {
@@ -41,6 +45,9 @@ object ImageUtils {
     ): InputStream? {
         val ruleJs = getRuleJs(source, isCover)
         if (ruleJs.isNullOrBlank()) return inputStream
+        if (source is BookSource && NgYiciyuanBridge.isAdapterSource(source)) {
+            return NgYiciyuanBridge.decodeImageStream(source, ruleJs, inputStream, src, book)
+        }
         //解密库hutool.crypto ByteArray|InputStream -> ByteArray
         return kotlin.runCatching {
             val bytes = source?.evalJS(ruleJs) {

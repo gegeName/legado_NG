@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application>
+        <service android:name="io.legado.features.tvbox.js.TvBoxJsService"
+            android:exported="false" android:isolatedProcess="true" android:process=":feature_tvbox_js" />
+    </application>
+</manifest>

@@ -7,10 +7,12 @@ import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
 import io.legado.app.data.entities.BookSource
 import io.legado.app.exception.NoStackTraceException
+import io.legado.app.integration.source.NgSourceImportAdapter
 import io.legado.app.model.jsSource.JsSourceConfig
 import io.legado.app.model.jsSource.JsSourceUpsert
 import io.legado.app.utils.GSON
 import java.io.Reader
+import java.io.StringReader
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
@@ -33,6 +35,12 @@ internal suspend fun readBookSourceImport(
     reader.reset()
     if (first != '['.code && first != '{'.code) {
         val script = readBoundedSourceScript(reader)
+        val decompressed = NgSourceImportAdapter.decompress(script)
+        if (decompressed != script) {
+            return StringReader(decompressed).use {
+                readBookSourceImport(it, allowSourceUrls, onSource, onSourceUrl)
+            }
+        }
         JsSourceUpsert.validatePayload(script)?.let {
             throw NoStackTraceException(
                 if (it == JsSourceUpsert.PayloadIssue.EMPTY) "JS 书源内容为空"
@@ -54,7 +62,8 @@ internal suspend fun readBookSourceImport(
         json.beginArray()
         while (json.hasNext()) {
             currentCoroutineContext().ensureActive()
-            val source = GSON.fromJson<BookSource>(json, BookSource::class.java)
+            val root = GSON.fromJson<JsonObject?>(json, JsonObject::class.java)
+            val source = root?.let(NgSourceImportAdapter::decode)
             // 合集中的空地址记录不影响其它书源；语法、类型和 null 错误仍正常抛出。
             if (source != null && source.bookSourceUrl.isEmpty()) {
                 skipped++
@@ -77,10 +86,11 @@ internal suspend fun readBookSourceImport(
                 onSourceUrl(url.asString)
             }
         } else {
-            emit(GSON.fromJson(root, BookSource::class.java))
+            emit(NgSourceImportAdapter.decode(root))
         }
     } else {
-        emit(GSON.fromJson<BookSource>(json, BookSource::class.java))
+        val root = GSON.fromJson<JsonObject?>(json, JsonObject::class.java)
+        emit(root?.let(NgSourceImportAdapter::decode))
     }
     if (json.peek() != JsonToken.END_DOCUMENT) throw JsonSyntaxException("书源 JSON 尾部存在多余内容")
     return 0

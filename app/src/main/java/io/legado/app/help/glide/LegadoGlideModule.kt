@@ -12,6 +12,9 @@ import com.bumptech.glide.load.model.GlideUrl
 import com.bumptech.glide.module.AppGlideModule
 import io.legado.app.BuildConfig
 import io.legado.app.help.config.AppConfig
+import io.legado.app.integration.image.NgExtensionImageLoader
+import io.legado.app.integration.image.NgOriginalImageFileLoader
+import io.legado.app.integration.image.NgPdfImageLoader
 import java.io.File
 import java.io.InputStream
 
@@ -36,6 +39,9 @@ class LegadoGlideModule : AppGlideModule() {
             File::class.java,
             FilePathLoader.Factory()
         )
+        NgExtensionImageLoader.register(registry)
+        NgOriginalImageFileLoader.register(registry)
+        NgPdfImageLoader.register(registry)
     }
 
     override fun applyOptions(context: Context, builder: GlideBuilder) {

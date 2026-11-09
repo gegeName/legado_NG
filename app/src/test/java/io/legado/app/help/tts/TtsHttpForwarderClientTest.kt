@@ -6,7 +6,7 @@ import com.google.gson.JsonParser
 import com.google.gson.JsonSyntaxException
 import io.legado.app.constant.AppPattern
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.htmlunit.corejs.javascript.Context
+import com.script.rhino.RhinoScriptEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -633,22 +633,7 @@ class TtsHttpForwarderClientTest {
     fun microsoftTranslatorPreservesLiteralTextAcrossRequestRuleBoundary() {
         val text = "字面文本：{{1+1}}，@Js:，<js>1+1</js>，&，😀"
         val engine = scriptEngineFromAssetFile("microsoft_translator.js")
-        val context = Context.enter()
-        val ssml = try {
-            context.optimizationLevel = -1
-            context.languageVersion = Context.VERSION_ES6
-            val scope = context.initStandardObjects()
-            context.evaluateString(scope, engine.script, "microsoft_translator.js", 1, null)
-            Context.toString(
-                context.evaluateString(
-                    scope,
-                    "buildTranslatorSsml(${Gson().toJson(text)}, null, {}, {});",
-                    "literal-text", 1, null
-                )
-            )
-        } finally {
-            Context.exit()
-        }
+        val ssml = RhinoScriptEngine.eval(engine.script + "\nbuildTranslatorSsml(${Gson().toJson(text)}, null, {}, {});").toString()
         val request = TtsScriptEngineClient.TtsScriptRequest(
             url = "https://southeastasia.tts.speech.microsoft.com/cognitiveservices/v1",
             method = "POST",
@@ -1323,20 +1308,7 @@ class TtsHttpForwarderClientTest {
 
     private fun evaluateNextEdgeScript(expression: String): JsonObject {
         val engine = scriptEngineFromAssetFile("next_edge_proxy.js")
-        val context = Context.enter()
-        return try {
-            context.optimizationLevel = -1
-            context.languageVersion = Context.VERSION_ES6
-            val scope = context.initStandardObjects()
-            context.evaluateString(scope, engine.script, "next_edge_proxy.js", 1, null)
-            JsonParser.parseString(
-                Context.toString(
-                    context.evaluateString(scope, "JSON.stringify($expression);", "next-edge-test", 1, null)
-                )
-            ).asJsonObject
-        } finally {
-            Context.exit()
-        }
+        return JsonParser.parseString(RhinoScriptEngine.eval(engine.script + "\nJSON.stringify($expression);").toString()).asJsonObject
     }
 
     private fun scriptEngineFromAssetFile(fileName: String): TtsEngineSetting {

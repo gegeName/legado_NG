@@ -35,9 +35,9 @@ class BookGroupAssignmentTest {
 
     @Test
     fun batchAddKeepsEachBooksOwnGroupsAndTheLatestReadingProgress() {
-        val first = Book(bookUrl = "first", group = 1, durChapterPos = 10)
-        val second = Book(bookUrl = "second", group = 2)
-        val untouched = Book(bookUrl = "untouched", group = 8)
+        val first = Book(bookUrl = "first", name = "first", group = 1, durChapterPos = 10)
+        val second = Book(bookUrl = "second", name = "second", group = 2)
+        val untouched = Book(bookUrl = "untouched", name = "untouched", group = 8)
         db.bookDao.insert(first, second, untouched)
         // The selected book objects still contain the old position when the user confirms.
         db.bookDao.upProgress(first.bookUrl, 1234)
@@ -53,7 +53,10 @@ class BookGroupAssignmentTest {
 
     @Test
     fun addingAPartlyJoinedGroupFillsMissingMembershipsAndIsIdempotent() {
-        db.bookDao.insert(Book(bookUrl = "first", group = 3), Book(bookUrl = "second", group = 4))
+        db.bookDao.insert(
+            Book(bookUrl = "first", name = "first", group = 3),
+            Book(bookUrl = "second", name = "second", group = 4),
+        )
         repeat(2) {
             db.runInTransaction {
                 listOf("first", "second").forEach { db.bookDao.addGroups(it, 2) }

@@ -1,4 +1,5 @@
 package io.legado.app.help.storage
+import io.legado.app.integration.platform.NgFeatureBackup
 
 import android.content.Context
 import android.database.sqlite.SQLiteConstraintException
@@ -112,6 +113,7 @@ object Restore {
         val restoredLocalBooks = arrayListOf<Book>()
         failures.clear()
         val modules = BackupResources.validate(File(path))
+        val featureRestore = if (modules == null || BackupModule.OTHER.id in modules) NgFeatureBackup.prepare(File(path)) else null
         // Reject a malformed/newer timing file before restoring any app data.
         val timingSnapshot = ReadingTimeBackup.read(File(path))
         val readingRecords = fileToListT<ReadRecord>(path, "readRecord.json")
@@ -421,6 +423,7 @@ object Restore {
                 io.legado.app.help.config.NgCoverAlbumStore.reloadAfterRestore(appCtx)
         }
         check(failures.isEmpty()) { "部分项目恢复失败：${failures.distinct().joinToString("；")}" }
+        NgFeatureBackup.restore(featureRestore)
         appCtx.toastOnUi(R.string.restore_success)
         withContext(Main) {
             delay(100)

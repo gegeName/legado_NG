@@ -675,3 +675,14 @@ Java 字符串包装对象，需要 JavaScript 字符串语义时先使用 `Stri
 - 书源管理菜单可分别新建规则书源和 JavaScript 书源。
 - 本地 `.js`／`.txt`、在线脚本文本和直接粘贴的脚本均可导入。
 - 选择单个 JavaScript 书源导出或分享时生成 `.js` 原文；多选或混合选择时生成 JSON 容器。
+
+# 异次元导入兼容接口
+
+通过异次元导入器转换的源使用版本化兼容策略。普通源的现有规则行为保持原值。
+
+- `java.aJax(url)`：历史 `ajax` 拼写别名。
+- `java.fetch(url[, options])`：使用当前源的 NG 网络会话，可读取 `text()`、`body().string()`、`code()`、`status()` 与 `url`。HTTP 状态按实际响应返回；网络/取消错误向调用者传播。
+- `java.match(text, regex[, index])`：正则首个匹配及捕获组，支持 `/pattern/ims` 形式。
+- `java.get(value, key)`：从 JS 对象、Map 或旧式字段文本取值。
+- `java.getStringSafe(rule)`：规则解析失败返回空串，取消继续传播；仅规则执行环境提供。
+- `java.decryptES[Bytes](mode, bm, data, key, iv)`、`java.decryptAES[Bytes](...)`：兼容旧源的字符串/字节解密签名，字符串输入可为 hex 或 Base64。

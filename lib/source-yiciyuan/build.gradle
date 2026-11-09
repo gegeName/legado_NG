@@ -1,0 +1,12 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm'
+}
+kotlin { jvmToolchain(17) }
+dependencies {
+    implementation project(':lib:feature-api')
+    implementation libs.gson
+    implementation libs.json.path
+    implementation libs.htmlunit.core.js
+    implementation libs.hutool.crypto
+    testImplementation libs.junit
+}

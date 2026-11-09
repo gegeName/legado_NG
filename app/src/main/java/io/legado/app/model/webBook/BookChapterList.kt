@@ -1,5 +1,7 @@
 package io.legado.app.model.webBook
 
+import io.legado.app.integration.rule.NgYiciyuanBridge
+
 import android.text.TextUtils
 import com.script.ScriptBindings
 import com.script.rhino.RhinoScriptEngine
@@ -231,7 +233,9 @@ object BookChapterList {
         if (elements.isNotEmpty()) {
             Debug.log(bookSource.bookSourceUrl, "┌解析目录列表", log)
             val nameRule = analyzeRule.splitSourceRule(tocRule.chapterName)
-            val urlRule = analyzeRule.splitSourceRule(tocRule.chapterUrl)
+            val urlRule = analyzeRule.splitSourceRule(
+                NgYiciyuanBridge.normalizeChapterUrlRule(bookSource, tocRule.chapterUrl)
+            )
             val vipRule = analyzeRule.splitSourceRule(tocRule.isVip)
             val payRule = analyzeRule.splitSourceRule(tocRule.isPay)
             val upTimeRule = analyzeRule.splitSourceRule(tocRule.updateTime)
@@ -243,7 +247,7 @@ object BookChapterList {
                 val bookChapter = BookChapter(bookUrl = book.bookUrl, baseUrl = redirectUrl)
                 analyzeRule.setChapter(bookChapter)
                 bookChapter.title = analyzeRule.getString(nameRule)
-                bookChapter.url = analyzeRule.getString(urlRule)
+                bookChapter.url = NgYiciyuanBridge.chapterUrl(bookSource, analyzeRule.getString(urlRule))
                 val info = analyzeRule.getString(upTimeRule)
                 val isVolume = analyzeRule.getString(isVolumeRule)
                 bookChapter.isVolume = false

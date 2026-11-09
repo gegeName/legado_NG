@@ -1,5 +1,7 @@
 package io.legado.app.model.webBook
 
+import io.legado.app.integration.rule.NgYiciyuanBridge
+
 import io.legado.app.R
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookSource
@@ -97,7 +99,8 @@ object BookList {
         Debug.log(bookSource.bookSourceUrl, "┌获取书籍列表")
         collections = analyzeRule.getElements(ruleList)
         currentCoroutineContext().ensureActive()
-        if (collections.isEmpty() && bookSource.bookUrlPattern.isNullOrEmpty()) {
+        if (collections.isEmpty() && bookSource.bookUrlPattern.isNullOrEmpty() &&
+            !NgYiciyuanBridge.isEmptyListResponse(bookSource, body)) {
             Debug.log(bookSource.bookSourceUrl, "└列表为空,按详情页解析")
             getInfoItem(
                 bookSource, analyzeRule, analyzeUrl, body, baseUrl, ruleData.getVariable(),
@@ -278,7 +281,10 @@ object BookList {
             }
             currentCoroutineContext().ensureActive()
             Debug.log(bookSource.bookSourceUrl, "┌获取详情页链接", log)
-            searchBook.bookUrl = analyzeRule.getString(ruleBookUrl, isUrl = true)
+            searchBook.bookUrl = NgYiciyuanBridge.bookUrl(
+                bookSource, analyzeRule.getString(ruleBookUrl, isUrl = true), item, baseUrl
+            )
+            if (NgYiciyuanBridge.rejectBookUrl(bookSource, searchBook.bookUrl, baseUrl)) return null
             if (searchBook.bookUrl.isEmpty()) {
                 searchBook.bookUrl = baseUrl
             }

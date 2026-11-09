@@ -42,6 +42,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.legado.app.R
+import io.legado.app.integration.manga.NgMangaLayout
+import io.legado.app.integration.manga.NgMangaSpread
+import io.legado.app.integration.manga.NgMangaSpreadImage
 import io.legado.app.ui.book.manga.config.MangaReadingStyle
 import io.legado.app.ui.book.manga.entities.BaseMangaPage
 import io.legado.app.ui.book.manga.entities.MangaPage
@@ -67,12 +70,16 @@ private data class MangaPageFrames(val current: Bitmap, val adjacent: Bitmap)
 @Composable
 internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> Unit,
     onMenu: () -> Unit, onRetryTail: () -> Unit) {
+    val displayPages by rememberUpdatedState(remember(ui.pages, ui.horizontal, ui.doublePage, ui.rtl) {
+        NgMangaLayout.display(ui.pages, ui.horizontal && ui.doublePage, ui.rtl)
+    })
+    val displayJump = NgMangaLayout.slot(displayPages, ui.pages.getOrNull(ui.jumpIndex), ui.jumpIndex)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val latestPage by rememberUpdatedState(onPage)
     val latestMenu by rememberUpdatedState(onMenu)
-    var position by remember { mutableIntStateOf(ui.jumpIndex.coerceIn(0, ui.pages.size)) }
-    var anchor by remember { mutableStateOf(mangaItemKey(ui.pages, position)) }
+    var position by remember { mutableIntStateOf(displayJump.coerceIn(0, displayPages.size)) }
+    var anchor by remember { mutableStateOf(mangaItemKey(displayPages, position)) }
     var appliedJump by remember { mutableIntStateOf(-1) }
     var turn by remember { mutableStateOf<MangaPageTurn?>(null) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -99,28 +106,28 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
         }
         val effect = ui.reading.effect
         val needsFrames = effect == MangaReadingStyle.COVER || effect == MangaReadingStyle.CURL
-        val currentKey = mangaItemKey(ui.pages, position)
-        val targetPosition = turn?.let { mangaAnchorIndex(ui.pages, it.to, position) }
+        val currentKey = mangaItemKey(displayPages, position)
+        val targetPosition = turn?.let { mangaAnchorIndex(displayPages, it.to, position) }
 
-        LaunchedEffect(ui.pages, ui.jumpRevision, ui.active, ui.loading, effect, width, height) {
+        LaunchedEffect(displayPages, ui.jumpRevision, ui.active, ui.loading, effect, width, height) {
             zoomJob?.cancel()
             turn = null; frames = null; progress = 0f; settling = false
-            position = if (appliedJump != ui.jumpRevision) ui.jumpIndex.coerceIn(0, ui.pages.size)
-                else mangaAnchorIndex(ui.pages, anchor, position)
-            anchor = mangaItemKey(ui.pages, position)
+            position = if (appliedJump != ui.jumpRevision) displayJump.coerceIn(0, displayPages.size)
+                else mangaAnchorIndex(displayPages, anchor, position)
+            anchor = mangaItemKey(displayPages, position)
             appliedJump = ui.jumpRevision
         }
-        LaunchedEffect(currentKey, ui.pages, ui.loading, appliedJump) {
+        LaunchedEffect(currentKey, displayPages, ui.loading, appliedJump) {
             if (!ui.loading && appliedJump == ui.jumpRevision) {
-                val page = ui.pages.getOrNull(position) ?: mangaTailPage(ui.pages)
-                page?.let(latestPage)
+                val page = displayPages.getOrNull(position) ?: mangaTailPage(displayPages)
+                page?.let { latestPage(NgMangaLayout.progress(it, ui.currentPage)) }
             }
         }
-        LaunchedEffect(ui.active, ui.pages, ui.preload) {
+        LaunchedEffect(ui.active, displayPages, ui.preload) {
             if (!ui.active) { preloader.clear(); return@LaunchedEffect }
             var previous = position
             snapshotFlow { position }.collect { index ->
-                preloader.update(ui.pages, index, ui.preload, index >= previous)
+                preloader.update(displayPages, index, ui.preload, index >= previous)
                 previous = index
             }
         }
@@ -153,7 +160,7 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
         fun begin(direction: Int, focus: Offset = Offset(width / 2, height / 2)): MangaPageTurn? {
             if (turn != null || settling || ui.loading || !ui.active || appliedJump != ui.jumpRevision) return null
             // pointerInput and the auto loop outlive recompositions: do not capture currentKey.
-            val pending = mangaBeginTurn(ui.pages, position, direction, ui.jumpRevision) ?: return null
+            val pending = mangaBeginTurn(displayPages, position, direction, ui.jumpRevision) ?: return null
             curlTop = (if (ui.horizontal) focus.y else focus.x) < (if (ui.horizontal) height else width) / 2
             turn = pending; progress = 0f; frames = null
             return pending
@@ -172,8 +179,8 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
                         progress = value
                     }
                 }
-                if (complete && mangaCanCommit(pending, anchor, ui.pages, ui.jumpRevision)) {
-                    position = mangaAnchorIndex(ui.pages, pending.to, position)
+                if (complete && mangaCanCommit(pending, anchor, displayPages, ui.jumpRevision)) {
+                    position = mangaAnchorIndex(displayPages, pending.to, position)
                     anchor = pending.to
                     ui.scale = 1f; pan = Offset.Zero
                 }
@@ -305,9 +312,9 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
             val sign = pending?.let { mangaTurnSign(ui.horizontal, ui.rtl, it.direction) } ?: -1
             // Keep the target's keyed composition when it becomes current: no second Glide load/flash.
             val surfaces = if (pending != null && targetPosition != null) listOf(targetPosition, position) else listOf(position)
-            surfaces.forEach { index -> key(mangaItemKey(ui.pages, index)) {
+            surfaces.forEach { index -> key(mangaItemKey(displayPages, index)) {
                 val isCurrent = index == position
-                MangaPagedSurface(ui, index, viewportHeight, onRetryTail,
+                MangaPagedSurface(ui, displayPages, index, viewportHeight, onRetryTail,
                     Modifier.fillMaxSize().graphicsLayer {
                         scaleX = if (isCurrent) ui.scale else 1f; scaleY = scaleX
                         translationX = if (isCurrent) pan.x else 0f
@@ -318,7 +325,7 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
                             else translationY += sign * height * distance
                         }
                     }.recordMangaPage(if (isCurrent) currentLayer else targetLayer,
-                        if (isCurrent) currentRecord else targetRecord, mangaItemKey(ui.pages, index),
+                        if (isCurrent) currentRecord else targetRecord, mangaItemKey(displayPages, index),
                         pending, needsFrames && pending != null))
             } }
             if (pending != null && frames != null) Canvas(Modifier.fillMaxSize()) {
@@ -343,10 +350,11 @@ private fun Modifier.recordMangaPage(layer: GraphicsLayer, record: RecordedManga
     }
 
 @Composable
-private fun MangaPagedSurface(ui: MangaReaderState, index: Int, height: androidx.compose.ui.unit.Dp,
+private fun MangaPagedSurface(ui: MangaReaderState, pages: List<BaseMangaPage>, index: Int, height: androidx.compose.ui.unit.Dp,
     onRetryTail: () -> Unit, modifier: Modifier) {
-    val page = ui.pages.getOrNull(index)
+    val page = pages.getOrNull(index)
     if (page is MangaPage) MangaImage(page, ui, height, modifier, paged = true)
+    else if (page is NgMangaSpread) NgMangaSpreadImage(page, ui, height, modifier)
     else Box(modifier.background(colorResource(R.color.book_ant_10)), Alignment.Center) {
         if (page is ReaderLoading) Text(page.mMessage.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         else Row(Modifier.clickable(enabled = ui.tailRetry, onClick = onRetryTail), verticalAlignment = Alignment.CenterVertically) {

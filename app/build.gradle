@@ -181,6 +181,8 @@ android {
 }
 
 dependencies {
+    implementation project(':lib:feature-api')
+    implementation project(':lib:legado-ng-adapter')
     //compileOnly "com.android.tools.build:gradle:$agp_version"
     //noinspection GradleDependency,GradlePackageUpdate
     //coreLibraryDesugaring('com.android.tools:desugar_jdk_libs_nio:2.0.4')
@@ -292,14 +294,11 @@ dependencies {
 
     //Glide
     implementation(libs.glide.glide)
-    implementation(libs.glide.okhttp)
     implementation(libs.glide.compose)
     ksp(libs.glide.ksp)
 
     //Svg
     implementation(libs.androidsvg)
-    //Glide svg plugin
-    implementation(libs.glide.svg)
 
     //webServer
     implementation(libs.nanohttpd.nanohttpd)

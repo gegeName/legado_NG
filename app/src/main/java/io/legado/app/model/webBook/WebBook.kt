@@ -20,6 +20,7 @@ import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.analyzeRule.RuleData
 import io.legado.app.model.jsSource.JsSourceBook
 import io.legado.app.model.jsSource.isJsSource
+import io.legado.app.integration.source.NgExtensionSourceBridge
 import io.legado.app.ui.main.explore.ExploreInfoStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -56,6 +57,7 @@ object WebBook {
         filter: ((name: String, author: String, kind: String?) -> Boolean)? = null,
         shouldBreak: ((size: Int) -> Boolean)? = null
     ): ArrayList<SearchBook> {
+        if (NgExtensionSourceBridge.handles(bookSource)) return NgExtensionSourceBridge.search(bookSource, key, page ?: 1, filter)
         if (bookSource.isJsSource()) {
             return JsSourceBook.searchAwait(bookSource, key, page, filter)
         }
@@ -132,6 +134,7 @@ object WebBook {
         url: String,
         page: Int? = 1,
     ): ArrayList<SearchBook> {
+        if (NgExtensionSourceBridge.handles(bookSource)) return NgExtensionSourceBridge.explore(bookSource, url, page ?: 1)
         if (bookSource.isJsSource()) {
             return JsSourceBook.exploreAwait(bookSource, url, page)
         }
@@ -203,6 +206,7 @@ object WebBook {
         book: Book,
         canReName: Boolean = true,
     ): Book {
+        if (NgExtensionSourceBridge.handles(bookSource)) return NgExtensionSourceBridge.details(bookSource, book, canReName)
         if (bookSource.isJsSource()) {
             return JsSourceBook.getBookInfoAwait(bookSource, book, canReName)
         }
@@ -314,6 +318,7 @@ object WebBook {
         runPerJs: Boolean,
         isFromBookInfo: Boolean,
     ): Result<List<BookChapter>> {
+        if (NgExtensionSourceBridge.handles(bookSource)) return NgExtensionSourceBridge.chapters(bookSource, book)
         if (bookSource.isJsSource()) {
             return JsSourceBook.getChapterListAwait(bookSource, book)
         }
@@ -414,6 +419,7 @@ object WebBook {
         nextChapterUrl: String? = null,
         needSave: Boolean = true
     ): String {
+        if (NgExtensionSourceBridge.handles(bookSource)) return NgExtensionSourceBridge.content(bookSource, book, bookChapter, needSave)
         if (bookSource.isJsSource()) {
             return JsSourceBook.getContentAwait(
                 bookSource,

@@ -21,10 +21,12 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import io.legado.app.help.exoplayer.ExoPlayerHelper
 import io.legado.app.model.VideoPlay
+import io.legado.app.integration.video.NgVideoBridge
 import tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer
 import tv.danmaku.ijk.media.exo2.demo.EventLogger
 
 class Exo2MediaPlayer(context: Context) : IjkExo2MediaPlayer(context) {
+    private val featureRequest = NgVideoBridge.currentRequest()
     companion object {
         private const val TAG = "GSYExo2MediaPlayer"
         private const val MAX_POSITION_FOR_SEEK_TO_PREVIOUS: Long = 3000
@@ -93,7 +95,9 @@ class Exo2MediaPlayer(context: Context) : IjkExo2MediaPlayer(context) {
                 mInternalPlayer.repeatMode = Player.REPEAT_MODE_ALL
             }
             if (mSurface != null) mInternalPlayer.setVideoSurface(mSurface)
-            mInternalPlayer.setMediaSource(mMediaSource)
+            NgVideoBridge.enhance(mInternalPlayer)
+            NgVideoBridge.selectAudio(mInternalPlayer, featureRequest)
+            mInternalPlayer.setMediaSource(NgVideoBridge.source(mAppContext, mMediaSource, featureRequest))
             mInternalPlayer.prepare()
             mInternalPlayer.playWhenReady = false
         }

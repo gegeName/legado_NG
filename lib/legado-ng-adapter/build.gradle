@@ -1,0 +1,35 @@
+plugins {
+    alias libs.plugins.android.library
+    alias libs.plugins.kotlin.android
+}
+def pdfEnabled = providers.gradleProperty('legadoPdf').getOrElse('true') == 'true'
+def videoEffectsEnabled = providers.gradleProperty('legadoVideoEffects').getOrElse('true') == 'true'
+android {
+    namespace 'io.legado.features.adapter'
+    compileSdk compile_sdk_version
+    defaultConfig { minSdk 21; consumerProguardFiles 'consumer-rules.pro' }
+    kotlin { jvmToolchain(17) }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    testOptions { unitTests.returnDefaultValues = true }
+    sourceSets.main.java.srcDirs += [pdfEnabled ? 'src/pdfEnabled/kotlin' : 'src/pdfDisabled/kotlin', videoEffectsEnabled ? 'src/media3Enabled/kotlin' : 'src/media3Disabled/kotlin']
+}
+dependencies {
+    implementation libs.gson
+    api project(':lib:feature-api')
+    implementation project(':lib:feature-backup')
+    implementation project(':lib:source-yiciyuan')
+    implementation project(':lib:tts-multitts-compat')
+    implementation project(':lib:source-runtime')
+    implementation project(':lib:source-mihon')
+    implementation project(':lib:source-aniyomi')
+    implementation project(':lib:source-tvbox')
+    implementation project(':lib:manga-reader-support')
+    implementation project(':lib:manga-translation')
+    if (pdfEnabled) implementation project(':lib:manga-pdf-support')
+    implementation project(':lib:video-support')
+    if (videoEffectsEnabled) implementation project(':lib:video-player-media3')
+    api libs.media3.exoplayer
+    api libs.okhttp
+    api libs.kotlinx.coroutines.core
+    testImplementation libs.junit
+}

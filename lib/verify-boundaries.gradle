@@ -1,0 +1,68 @@
+// Deliberately independent of Android build/packaging tasks.
+tasks.register('verifyFeatureBoundaries') {
+    group = 'verification'
+    description = 'Verify implemented feature dependency boundaries and registered NG hooks'
+    doLast {
+        def featureProjects = rootProject.subprojects.findAll { it.path.startsWith(':lib:') }
+        def graph = [:].withDefault { new LinkedHashSet<String>() }
+        def violations = []
+        featureProjects.each { p ->
+            ['README.md', 'src/test'].each { required ->
+                if (!p.file(required).exists()) violations << "${p.path}: missing $required"
+            }
+            p.configurations.each { config ->
+                config.dependencies.withType(ProjectDependency).each { dep ->
+                    def target = dep.dependencyProject.path
+                    // AGP adds the library under test to its own test classpath.
+                    if (target == p.path && config.name =~ /(?i)(unitTest|androidTest)/) return
+                    if (target == ':app') violations << "${p.path}: forbidden :app dependency"
+                    if (target.startsWith(':lib:')) graph[p.path].add(target)
+                }
+            }
+            def buildText = p.buildFile.getText('UTF-8')
+            if (buildText =~ /(?i)(?:sourceSets|srcDirs|srcDir|compileOnly).*app/) {
+                violations << "${p.path}: possible app source/compileOnly reference"
+            }
+            def hostSources = rootProject.file('app/src').canonicalFile.toPath()
+            def sourceSets = p.extensions.findByName('sourceSets')
+            sourceSets?.each { sourceSet ->
+                sourceSet.allSource.srcDirs.each { sourceDir ->
+                    if (sourceDir.canonicalFile.toPath().startsWith(hostSources)) {
+                        violations << "${p.path}: references app source directory $sourceDir"
+                    }
+                }
+            }
+            p.fileTree('src').matching {
+                include '**/*.kt', '**/*.java', '**/*.xml', '**/*.js', '**/*.pro', '**/*.json'
+            }.each { f ->
+                if (f.getText('UTF-8') =~ /(?:io[.\/]legado[.\/]app\b|\bappDb\b|\bAppConfig\b|\bReadManga\b|\bapp\.R\b)/) {
+                    violations << "${p.path}: host implementation reference in ${p.relativePath(f)}"
+                }
+            }
+        }
+        def visit
+        visit = { String node, Set<String> active, Set<String> done ->
+            if (active.contains(node)) { violations << "feature dependency cycle: $active -> $node"; return }
+            if (done.contains(node)) return
+            active.add(node)
+            graph[node].each { visit(it, active, done) }
+            active.remove(node)
+            done.add(node)
+        }
+        def done = new LinkedHashSet<String>()
+        featureProjects.each { visit(it.path, new LinkedHashSet<String>(), done) }
+        def hookFile = rootProject.file('lib/UPSTREAM_HOOKS.md')
+        def hooks = hookFile.exists() ? hookFile.getText('UTF-8') : ''
+        rootProject.fileTree('app/src/main').matching { include '**/*.kt', '**/*.java' }.each { f ->
+            def path = rootProject.relativePath(f).replace('\\', '/')
+            def content = f.getText('UTF-8')
+            if (!path.contains('/integration/') && content =~ /(?:import\s+io\.legado\.features\.|import\s+io\.legado\.app\.integration\.)/) {
+                if (!hooks.contains('`' + path + '`')) violations << "unregistered hook: $path"
+            }
+        }
+        // A missing hook file must fail even before there are imports to discover.
+        if (!hookFile.exists()) violations << 'missing lib/UPSTREAM_HOOKS.md'
+        if (!violations.isEmpty()) throw new GradleException(violations.unique().join('\n'))
+        logger.lifecycle("Feature boundaries OK (${featureProjects.size()} modules). APK ABI/merged Manifest checks require a packaged artifact and are not asserted here.")
+    }
+}

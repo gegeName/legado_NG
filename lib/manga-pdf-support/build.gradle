@@ -1,0 +1,17 @@
+plugins {
+    alias libs.plugins.android.library
+    alias libs.plugins.kotlin.android
+}
+android {
+    namespace 'io.legado.features.pdf'
+    compileSdk compile_sdk_version
+    defaultConfig { minSdk 21; consumerProguardFiles 'consumer-rules.pro' }
+    kotlin { jvmToolchain(17) }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    testOptions { unitTests.returnDefaultValues = true }
+}
+dependencies {
+    api project(':lib:feature-api')
+    implementation libs.kotlinx.coroutines.core
+    testImplementation libs.junit
+}

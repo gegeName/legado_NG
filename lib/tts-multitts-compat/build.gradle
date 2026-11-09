@@ -1,0 +1,13 @@
+plugins { id 'org.jetbrains.kotlin.jvm' }
+kotlin { jvmToolchain(17) }
+dependencies {
+    implementation project(':lib:feature-api')
+    implementation libs.gson
+    implementation 'org.yaml:snakeyaml:2.6'
+    testImplementation libs.junit
+    testImplementation libs.htmlunit.core.js
+    testImplementation libs.hutool.crypto
+}
+tasks.named('test') {
+    if (project.hasProperty('multiTtsSample')) systemProperty 'multiTtsSample', project.property('multiTtsSample')
+}

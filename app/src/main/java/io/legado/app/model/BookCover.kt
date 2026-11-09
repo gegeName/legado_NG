@@ -1,4 +1,9 @@
 package io.legado.app.model
+import io.legado.app.help.book.isPdf
+
+import io.legado.app.integration.image.NgOriginalImageResources
+import io.legado.app.help.book.isLocal
+import io.legado.app.integration.image.NgPdfImageLoader
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -174,9 +179,15 @@ object BookCover {
         }
         options = mangaCacheOptions(options, path, sourceOrigin)
         return ImageLoader.load(context, path)
+            .let { builder ->
+                val book = ReadManga.book
+                if (book?.isPdf == true && path != null && (sourceOrigin == null || sourceOrigin == book.origin)) builder.load(NgPdfImageLoader.Request(book.copy(), path))
+                else options.options.get(NgOriginalImageResources.requestOption)?.let { builder.load(it) } ?: builder
+            }
             .apply(options)
+            .priority(com.bumptech.glide.Priority.HIGH)
             .override(context.resources.displayMetrics.widthPixels, SIZE_ORIGINAL)
-            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .diskCacheStrategy(DiskCacheStrategy.NONE)
             .skipMemoryCache(true).let {
                 if (transformation != null) {
                     it.transform(transformation)
@@ -198,17 +209,22 @@ object BookCover {
             options = options.set(OkHttpModelLoader.sourceOriginOption, sourceOrigin)
         }
         options = mangaCacheOptions(options, path, sourceOrigin)
-        return Glide.with(context)
-            .downloadOnly()
+        val original = options.options.get(NgOriginalImageResources.requestOption)
+        val pdf = ReadManga.book?.takeIf { it.isPdf && path != null && (sourceOrigin == null || sourceOrigin == it.origin) }?.let { NgPdfImageLoader.Request(it.copy(), path!!) }
+        return (if (original != null || pdf != null) Glide.with(context).asFile() else Glide.with(context).downloadOnly())
             .apply(options)
-            .load(path)
+            .priority(com.bumptech.glide.Priority.LOW)
+            .diskCacheStrategy(if (original != null || pdf != null) DiskCacheStrategy.NONE else DiskCacheStrategy.DATA)
+            .skipMemoryCache(true)
+            .load(original ?: pdf ?: path)
     }
 
     /** 这里只捕获请求归属；文件检查仍由 Glide 后台加载线程执行。 */
     private fun mangaCacheOptions(options: RequestOptions, path: String?, sourceOrigin: String?): RequestOptions {
         val book = ReadManga.book ?: return options
         if (path == null || (sourceOrigin != null && sourceOrigin != book.origin)) return options
-        return options.set(OkHttpModelLoader.mangaImageCacheOption, BookHelp.getImage(book, path).path)
+        if (book.isLocal) return options
+        return NgOriginalImageResources.options(options, book, sourceOrigin, path)
     }
 
     /**

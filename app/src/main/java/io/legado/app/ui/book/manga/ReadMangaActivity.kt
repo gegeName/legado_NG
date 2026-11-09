@@ -1,4 +1,9 @@
 package io.legado.app.ui.book.manga
+import io.legado.app.help.book.isPdf
+
+import io.legado.app.integration.manga.NgMangaReaderBridge
+import io.legado.app.integration.manga.NgMangaTranslationBridge
+import io.legado.app.integration.manga.NgMangaTranslationDialog
 
 import android.content.Intent
 import android.os.Bundle
@@ -221,7 +226,7 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
         }
     }
     private fun onPageVisible(page: BaseMangaPage) {
-        if (ui.loading) return
+        if (ui.loading || !ui.acceptProgress(page)) return
         MangaScrollDiagnostics.event("ACTIVE") {
             "candidate=${mangaPageKey(page)} current=${ReadManga.durChapterIndex}:${ReadManga.durChapterPos}"
         }
@@ -316,6 +321,15 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
             MangaAction.RETRY -> { showLoading(); ReadManga.loadOrUpContent() }
             MangaAction.TAIL_RETRY -> { startLoad(); ReadManga.loadOrUpContent() }
             MangaAction.RESET_READING -> confirmResetReading()
+            MangaAction.TRANSLATION_SETTINGS -> {
+                setPanel(MangaPanel.NONE)
+                ui.externalModal = true
+                NgMangaTranslationDialog.show(this) {
+                    ReadManga.book?.let { NgMangaTranslationBridge.invalidateBook(it.bookUrl) }
+                    ui.translationEnabled = NgMangaTranslationBridge.configuration.enabled
+                    ui.translationRevision++
+                }.setOnDismissListener { ui.externalModal = false }
+            }
             MangaAction.OPEN_WEB -> openChapterWeb()
             MangaAction.WEB_MODE -> showConfirmation(getString(R.string.open_fun), getString(R.string.use_browser_open),
                 getString(R.string.yes), getString(R.string.no), { AppConfig.readUrlInBrowser = true }, { AppConfig.readUrlInBrowser = false })
@@ -399,6 +413,33 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
             MangaSetting.SCALE -> { ui.scaleEnabled = enabled; AppConfig.disableMangaScale = !enabled }
             MangaSetting.CLICK -> { ui.clickTurn = enabled; AppConfig.disableClickScroll = !enabled }
             MangaSetting.PRELOAD -> { ui.preload = value; AppConfig.mangaPreDownloadNum = value }
+            MangaSetting.PDF_AHEAD -> {
+                ui.pdfAhead = value.coerceIn(0, 16)
+                io.legado.app.integration.manga.NgMangaPdfBridge.saveAhead(ui.pdfAhead)
+                ui.currentPage?.let { page -> ReadManga.book?.takeIf { it.isPdf }?.let { book ->
+                    lifecycleScope.launch { io.legado.app.integration.manga.NgMangaPdfBridge.window(book.copy(), page.mImageUrl) }
+                } }
+            }
+            MangaSetting.DOUBLE_PAGE -> {
+                ui.doublePage = enabled
+                NgMangaReaderBridge.preferences = NgMangaReaderBridge.preferences.copy(doublePage = enabled)
+                skipToPage(ui.imageIndex)
+            }
+            MangaSetting.CHAPTER_AHEAD -> {
+                ui.chapterAhead = value.coerceIn(0, 100)
+                NgMangaReaderBridge.preferences = NgMangaReaderBridge.preferences.copy(chapterAhead = ui.chapterAhead)
+                ReadManga.curPageChanged()
+            }
+            MangaSetting.CHAPTER_BEHIND -> {
+                ui.chapterBehind = value.coerceIn(0, 100)
+                NgMangaReaderBridge.preferences = NgMangaReaderBridge.preferences.copy(chapterBehind = ui.chapterBehind)
+                ReadManga.curPageChanged()
+            }
+            MangaSetting.IMAGE_CHAPTERS -> {
+                ui.imageChapters = value.coerceIn(0, 100)
+                NgMangaReaderBridge.preferences = NgMangaReaderBridge.preferences.copy(imageChapters = ui.imageChapters)
+                ReadManga.curPageChanged()
+            }
             MangaSetting.CATALOG_STYLE -> {
                 ui.catalogStyle = ReadCatalogStyle.entries[value]
                 putPrefString(PreferKey.readCatalogStyle, ui.catalogStyle.value)

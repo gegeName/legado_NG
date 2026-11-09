@@ -43,6 +43,8 @@ import io.legado.app.help.tts.TtsVoice
 import io.legado.app.help.tts.TtsVoiceStyle
 import io.legado.app.help.tts.generateTtsRandomNumber
 import io.legado.app.help.tts.styleOptions
+import io.legado.app.integration.tts.NgMultiTtsImportAdapter
+import io.legado.app.integration.tts.NgMultiTtsImportDialog
 import io.legado.app.ui.design.components.compose.NgListState
 import io.legado.app.ui.design.theme.NgAppTheme
 import io.legado.app.ui.widget.TitleBar
@@ -54,7 +56,6 @@ import io.legado.app.utils.getPrefString
 import io.legado.app.utils.hideSoftInput
 import io.legado.app.utils.isAbsUrl
 import io.legado.app.utils.putPrefString
-import io.legado.app.utils.readText
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -494,6 +495,8 @@ class TtsEngineConfigFragment : BaseFragment(0),
                         "text/*",
                         "application/json",
                         "application/javascript",
+                        "application/zip",
+                        "application/x-zip-compressed",
                         "application/octet-stream"
                     )
                 )
@@ -646,10 +649,25 @@ class TtsEngineConfigFragment : BaseFragment(0),
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    uri.readText(requireContext())
+                    NgMultiTtsImportAdapter.readUri(uri, requireContext(), coroutineContext)
+                }.onFailure {
+                    if (it is CancellationException) throw it
                 }
             }
-            result.onSuccess { importTtsEngineText(it) }
+            result.onSuccess { file ->
+                when (file) {
+                    is NgMultiTtsImportAdapter.FileImport.Text -> importTtsEngineText(file.content)
+                    is NgMultiTtsImportAdapter.FileImport.Backup -> {
+                        modalDialog?.dismiss()
+                        modalDialog = NgMultiTtsImportDialog.show(requireContext(), file.preview) { merge ->
+                            lifecycleScope.launch {
+                                val text = withContext(Dispatchers.IO) { NgMultiTtsImportAdapter.importText(file.preview, merge) }
+                                importTtsEngineText(text)
+                            }
+                        }
+                    }
+                }
+            }
                 .onFailure { requireContext().toastOnUi(it.localizedMessage ?: "导入失败") }
         }
     }
@@ -722,7 +740,7 @@ class TtsEngineConfigFragment : BaseFragment(0),
     ) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                TtsEngineStore.importEngineText(content, conflictAction)
+                TtsEngineStore.importEngineText(content, conflictAction).onSuccess(NgMultiTtsImportAdapter::projectCatalog)
             }
             handleTtsEngineImportResult(result, content)
         }
