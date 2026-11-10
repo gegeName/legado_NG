@@ -52,3 +52,5 @@ __pycache__/
 /lib/legado-ng-adapter/src/test/
 /app/src/test/
 /lib/extension-compat/src/test/
+/lib/video-player-media3/src/test/
+/app/src/test/

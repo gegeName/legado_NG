@@ -1,6 +1,7 @@
 package io.legado.app.help.gsyVideo
 
 import android.os.Message
+import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import com.shuyu.gsyvideoplayer.GSYVideoBaseManager
@@ -10,6 +11,13 @@ import io.legado.app.R
 基类管理器
  */
 class ExoVideoManager: GSYVideoBaseManager() {
+    /** Match GSY's synchronous setDisplay; its MediaHandler ignores HANDLER_SETDISPLAY. */
+    fun setDisplay(surface: Surface, width: Int, height: Int) {
+        val msg = Message()
+        msg.what = HANDLER_SETDISPLAY
+        msg.obj = VideoSurfaceOutput(surface, width, height)
+        playerManager?.showDisplay(msg)
+    }
     companion object {
         val SMALL_ID: Int = R.id.small_id
         val FULLSCREEN_ID: Int = R.id.full_id
@@ -73,3 +81,5 @@ class ExoVideoManager: GSYVideoBaseManager() {
     }
 
 }
+
+internal data class VideoSurfaceOutput(val surface: Surface, val width: Int, val height: Int)

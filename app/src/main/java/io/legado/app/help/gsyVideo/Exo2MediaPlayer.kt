@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -16,6 +17,8 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DefaultRenderersFactory.ExtensionRendererMode
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.common.util.Size
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -32,6 +35,22 @@ class Exo2MediaPlayer(context: Context) : IjkExo2MediaPlayer(context) {
         private const val MAX_POSITION_FOR_SEEK_TO_PREVIOUS: Long = 3000
     }
     private val window = Timeline.Window()
+
+    @OptIn(UnstableApi::class)
+    fun setVideoOutput(surface: Surface, width: Int, height: Int) {
+        setSurface(surface)
+        val player = mInternalPlayer ?: return
+        if (width <= 0 || height <= 0) return
+        // setVideoSurface alone reports an unknown size. The effects pipeline needs
+        // the same output-resolution message used by Media3's TextureView callback.
+        for (index in 0 until player.rendererCount) {
+            if (player.getRendererType(index) == C.TRACK_TYPE_VIDEO) {
+                player.createMessage(player.getRenderer(index))
+                    .setType(Renderer.MSG_SET_VIDEO_OUTPUT_RESOLUTION)
+                    .setPayload(Size(width, height)).send()
+            }
+        }
+    }
 
     /**
      * 上一集

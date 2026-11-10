@@ -99,6 +99,10 @@ class ExoPlayerManager : BasePlayerManager() {
         if (mediaPlayer == null) return
         if (msg.obj == null) {
             mediaPlayer!!.setSurface(dummySurface)
+        } else if (msg.obj is VideoSurfaceOutput) {
+            val output = msg.obj as VideoSurfaceOutput
+            surface = output.surface
+            mediaPlayer!!.setVideoOutput(output.surface, output.width, output.height)
         } else {
             val holder: Surface? = msg.obj as? Surface
             surface = holder

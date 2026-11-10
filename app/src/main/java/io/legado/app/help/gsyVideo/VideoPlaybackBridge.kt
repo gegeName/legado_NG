@@ -69,6 +69,8 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     private var cachePath: File? = null
     private var cache = false
     private val lease = VideoOutputLease<Surface>()
+    private var outputWidth = 0
+    private var outputHeight = 0
     private var ticker: Job? = null
     private var hasPlaybackPosition = false
     private var playWhenReady = true
@@ -78,14 +80,23 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     private var networkChanged = false
     private var networkRetry: Job? = null
 
-    fun attach(owner: Any, surface: Surface) {
+    fun attach(owner: Any, surface: Surface, width: Int, height: Int) {
         lease.attach(owner, surface)
-        manager.setDisplay(surface)
+        outputWidth = width
+        outputHeight = height
+        manager.setDisplay(surface, width, height)
         // A paused decoder needs to render its current frame into the new texture.
         if (state.value.prepared && !state.value.playing) {
             manager.seekTo(state.value.position.coerceAtMost((state.value.duration - 1).coerceAtLeast(0)))
         }
         mutableOwner.value = owner
+    }
+
+    fun resize(owner: Any, surface: Surface, width: Int, height: Int) {
+        if (lease.owner !== owner || lease.output !== surface) return
+        outputWidth = width
+        outputHeight = height
+        manager.setDisplay(surface, width, height)
     }
 
     fun detach(owner: Any, surface: Surface) {
@@ -136,7 +147,9 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     }
 
     override fun onPrepared() {
-        manager.setDisplay(lease.output)
+        val output = lease.output
+        if (output != null) manager.setDisplay(output, outputWidth, outputHeight)
+        else manager.setDisplay(null)
         manager.start()
         if (seekOnStart > 0) manager.seekTo(seekOnStart)
         if (!playWhenReady) manager.pause()

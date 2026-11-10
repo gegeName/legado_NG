@@ -38,9 +38,11 @@ fun VideoRenderHost(owner: Any, state: VideoPlaybackState, danmakuVisible: Boole
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     private var output: Surface? = null
                     override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
-                        output = Surface(texture).also { VideoPlaybackBridge.attach(owner, it) }
+                        output = Surface(texture).also { VideoPlaybackBridge.attach(owner, it, width, height) }
                     }
-                    override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) = Unit
+                    override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
+                        output?.let { VideoPlaybackBridge.resize(owner, it, width, height) }
+                    }
                     override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
                     override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
                         output?.let { VideoPlaybackBridge.detach(owner, it); it.release() }

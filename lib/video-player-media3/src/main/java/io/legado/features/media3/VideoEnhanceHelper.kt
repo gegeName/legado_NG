@@ -9,7 +9,6 @@ import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BaseGlShaderProgram
-import androidx.media3.effect.Contrast
 import androidx.media3.effect.GlEffect
 import androidx.media3.effect.GlShaderProgram
 import androidx.media3.effect.LanczosResample
@@ -40,8 +39,9 @@ object VideoEnhanceHelper {
         val effects = ArrayList<Effect>()
         when (mode) {
             EnhanceMode.NONE -> {
-                // 占位 Effect，确保 ExoPlayer 在 prepare() 前成功初始化 VideoFrameProcessor 管线
-                effects.add(Contrast(0.0f))
+                // Original playback must not require a GL frame-processing pipeline.
+                // Even setVideoEffects(emptyList()) opts a fresh player into that pipeline.
+                return
             }
 
             EnhanceMode.AMD_CAS -> {
