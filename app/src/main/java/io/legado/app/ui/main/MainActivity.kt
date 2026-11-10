@@ -211,7 +211,9 @@ class MainActivity : VMBaseActivity<ActivityMainBinding, MainViewModel>(),
             val isAutoRefreshedBook = savedInstanceState?.getBoolean("isAutoRefreshedBook") ?: false
             if (AppConfig.autoRefreshBook && !isAutoRefreshedBook) {
                 binding.viewPagerMain.postDelayed(2000) {
-                    viewModel.upAllBookToc()
+                    if (AppConfig.autoRefreshBook && !isFinishing && !isDestroyed) {
+                        viewModel.upAllBookToc()
+                    }
                 }
             }
         }
