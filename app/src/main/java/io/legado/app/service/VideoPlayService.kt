@@ -87,7 +87,7 @@ class VideoPlayService : BaseService(), androidx.savedstate.SavedStateRegistryOw
             }
         }
     }
-    private val playback get() = io.legado.app.help.gsyVideo.VideoPlaybackBridge
+    private val playback get() = io.legado.app.help.video.VideoPlaybackBridge
     private var upNotificationJob: Coroutine<*>? = null
     private var animator: SpringAnimation? = null
     private var cover: Bitmap =

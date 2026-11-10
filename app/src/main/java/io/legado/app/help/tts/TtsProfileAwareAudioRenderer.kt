@@ -160,8 +160,8 @@ internal class TtsProfileAwareAudioRenderer(
             ?.let(::applyActivation)
     }
 
-    override fun onPositionReset(positionUs: Long, joining: Boolean) {
-        super.onPositionReset(positionUs, joining)
+    override fun onPositionReset(positionUs: Long, joining: Boolean, mayRenderStartOfStream: Boolean) {
+        super.onPositionReset(positionUs, joining, mayRenderStartOfStream)
         val current = mediaPeriodId?.let { currentPeriodId ->
             runCatching { playbackStreamProfile(currentPeriodId) }.getOrNull()
         }

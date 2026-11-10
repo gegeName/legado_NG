@@ -1,10 +1,9 @@
-package io.legado.app.help.gsyVideo
+package io.legado.app.help.video
 
 import android.content.Context
 import android.media.AudioManager
 import android.view.Surface
-import com.shuyu.gsyvideoplayer.listener.GSYMediaPlayerListener
-import com.shuyu.gsyvideoplayer.utils.NetInfoModule
+import android.net.ConnectivityManager
 import io.legado.app.model.VideoPlay
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,7 +39,7 @@ data class VideoPlaybackState(
 }
 
 /** A single media session shared by the activity and the overlay, independent of composition. */
-object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
+object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutableState = MutableStateFlow(VideoPlaybackState())
     val state = mutableState.asStateFlow()
@@ -48,7 +47,7 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     val owner = mutableOwner.asStateFlow()
     private val completionEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val completions = completionEvents.asSharedFlow()
-    private val manager get() = VideoPlay.videoManager
+    private val manager = Media3VideoEngine()
     private val audio by lazy { appCtx.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     private val focus = AudioManager.OnAudioFocusChangeListener { change ->
         if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
@@ -75,9 +74,8 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     private var hasPlaybackPosition = false
     private var playWhenReady = true
     private var selectedSpeed = 1f
-    private var network: NetInfoModule? = null
+    private val connectivity get() = appCtx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private var networkType = ""
-    private var networkChanged = false
     private var networkRetry: Job? = null
 
     fun attach(owner: Any, surface: Surface, width: Int, height: Int) {
@@ -137,39 +135,34 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     @Suppress("DEPRECATION")
     override fun startPlayLogic() {
         val url = url ?: return
-        if (state.value.preparing) return
         playWhenReady = true
-        manager.initContext(appCtx)
+        networkType = connectionType()
         manager.setListener(this)
         audio.requestAudioFocus(focus, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
         mutableState.update { it.copy(preparing = true, error = null) }
-        manager.prepare(url, mapHeadData, false, selectedSpeed, cache, cachePath)
+        try {
+            manager.prepare(url, mapHeadData, false, selectedSpeed, cache, cachePath, seekOnStart, playWhenReady)
+        } catch (error: Exception) {
+            manager.releaseMediaPlayer()
+            loadError("播放器初始化失败：${error.localizedMessage.orEmpty()}")
+        }
     }
 
     override fun onPrepared() {
-        val output = lease.output
-        if (output != null) manager.setDisplay(output, outputWidth, outputHeight)
-        else manager.setDisplay(null)
-        manager.start()
-        if (seekOnStart > 0) manager.seekTo(seekOnStart)
-        if (!playWhenReady) manager.pause()
+        // Output, bookmark and playWhenReady are supplied before prepare. A READY
+        // callback must not bind the output or trigger another startup seek.
+        seekOnStart = 0
         hasPlaybackPosition = true
         onVideoSizeChanged()
         mutableState.update { it.copy(preparing = false, prepared = true, playing = playWhenReady, ended = false,
             duration = manager.duration.coerceAtLeast(0), error = null) }
-        if (network == null) {
-            network = NetInfoModule(appCtx) { type ->
-                if (networkType != type) networkChanged = true
-                networkType = type
-            }.also { networkType = it.currentConnectionType; it.onHostResume() }
-        }
         ticker?.cancel()
         ticker = scope.launch {
             while (isActive) {
                 // Reattaching a completed video seeks just before its end to paint the last frame.
                 // That decoder position must not turn a completed session into a paused one.
                 mutableState.update { if (it.ended) it else it.copy(position = manager.currentPosition.coerceAtLeast(0),
-                    duration = manager.duration.coerceAtLeast(0)) }
+                    duration = manager.duration.coerceAtLeast(0), buffered = manager.bufferedPercentage) }
                 delay(500)
             }
         }
@@ -178,8 +171,7 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     fun toggle() {
         if (state.value.playing) onVideoPause()
         else if (!state.value.prepared && url?.startsWith("http", true) == true &&
-            !com.shuyu.gsyvideoplayer.utils.CommonUtil.isWifiConnected(appCtx) &&
-            !manager.cachePreview(appCtx, cachePath, url)) {
+            !isWifiConnected()) {
             mutableState.update { it.copy(networkConfirmation = true) }
         } else onVideoResume()
     }
@@ -189,7 +181,8 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     }
     override fun onVideoPause() {
         playWhenReady = false
-        if (state.value.prepared) manager.pause()
+        networkRetry?.cancel()
+        manager.pause()
         mutableState.update { it.copy(playing = false) }
     }
     override fun onVideoResume() = onVideoResume(false)
@@ -210,7 +203,7 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
         mutableState.update { it.copy(playing = true) }
     }
     fun seekTo(position: Long) {
-        val target = position.coerceIn(0, state.value.duration.coerceAtLeast(0))
+        val target = if (state.value.duration > 0) position.coerceIn(0, state.value.duration) else position.coerceAtLeast(0)
         if (state.value.prepared) manager.seekTo(target) else seekOnStart = target
         mutableState.update { it.copy(position = target, ended = false, seekRevision = it.seekRevision + 1) }
     }
@@ -240,11 +233,12 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     override fun onError(what: Int, extra: Int) {
         ticker?.cancel()
         seekOnStart = state.value.position
-        VideoPlay.saveRead(seekOnStart.toInt())
+        if (hasPlaybackPosition) VideoPlay.saveRead(seekOnStart.coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
         mutableState.update { it.copy(preparing = false, prepared = false, playing = false, buffering = false,
             error = "播放失败 ($what / $extra)") }
-        if (networkChanged) {
-            networkChanged = false
+        val currentNetwork = connectionType()
+        if (networkType != currentNetwork && playWhenReady) {
+            networkType = currentNetwork
             networkRetry?.cancel()
             networkRetry = scope.launch {
                 manager.releaseMediaPlayer()
@@ -271,6 +265,21 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
     override fun onBackFullscreen() = Unit
 
     @Suppress("DEPRECATION")
+    private fun isWifiConnected(): Boolean =
+        connectivity.activeNetworkInfo?.type == ConnectivityManager.TYPE_WIFI
+
+    @Suppress("DEPRECATION")
+    private fun connectionType(): String = connectivity.activeNetworkInfo?.let { "${it.type}:${it.isConnected}" }.orEmpty()
+
+    fun releasePlayer() {
+        ticker?.cancel()
+        networkRetry?.cancel()
+        manager.setListener(null)
+        manager.setDisplay(null)
+        manager.releaseMediaPlayer()
+    }
+
+    @Suppress("DEPRECATION")
     fun release(owner: Any) {
         if (!lease.release(owner)) return
         // Until the decoder is prepared, UI position can still be a loading placeholder.
@@ -279,9 +288,6 @@ object VideoPlaybackBridge : VideoPlaybackTarget, GSYMediaPlayerListener {
         VideoPlay.stopLoading()
         ticker?.cancel()
         networkRetry?.cancel()
-        network?.onHostPause()
-        network = null
-        networkChanged = false
         audio.abandonAudioFocus(focus)
         manager.setDisplay(null)
         mutableOwner.value = null

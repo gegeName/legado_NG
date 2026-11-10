@@ -1,9 +1,17 @@
-package io.legado.app.help.gsyVideo
+package io.legado.app.help.video
 
 import org.junit.Assert.*
 import org.junit.Test
 
 class VideoOutputLeaseTest {
+    @Test fun outputCanBeAttachedBeforePlayerCreationAndReusedByNewPlayer() {
+        val owner = Any(); val surface = Any(); val lease = VideoOutputLease<Any>()
+        lease.attach(owner, surface)
+        assertSame(owner, lease.owner)
+        assertSame(surface, lease.output)
+        assertTrue(lease.detach(owner, surface))
+    }
+
     @Test fun outgoingActivityCannotReleaseOverlay() {
         val activity = Any(); val service = Any(); val old = Any(); val next = Any()
         val lease = VideoOutputLease<Any>()

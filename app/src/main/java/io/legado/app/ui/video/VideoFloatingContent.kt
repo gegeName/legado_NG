@@ -17,7 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import io.legado.app.R
-import io.legado.app.help.gsyVideo.VideoPlaybackBridge
+import io.legado.app.help.video.VideoPlaybackBridge
 import kotlinx.coroutines.delay
 
 @Composable

@@ -1,4 +1,4 @@
-package io.legado.app.help.gsyVideo
+package io.legado.app.help.video
 
 /** Late callbacks from an outgoing window must never detach the incoming window's output. */
 internal class VideoOutputLease<T : Any> {

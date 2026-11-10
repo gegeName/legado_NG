@@ -36,7 +36,7 @@
 | 视频宿主文件 | 职责与默认行为 | 回归 |
 | --- | --- | --- |
 | `app/src/main/java/io/legado/app/model/VideoPlay.kt` | 每次解析捕获会话版本，读取中立多清晰度结果并保留 NG 进度/跳集所有权 | 迟到回调/清晰度位置恢复 |
-| `app/src/main/java/io/legado/app/help/gsyVideo/Exo2MediaPlayer.kt` | 委托模块合并字幕/外部音轨与画面效果；复用现有单一 ExoPlayer | 普通源/请求头/原画 |
+| `app/src/main/java/io/legado/app/help/video/Media3VideoEngine.kt` | 委托模块合并字幕/外部音轨与画面效果；应用直接管理单一 Media3 ExoPlayer | 普通源/请求头/原画 |
 | `app/src/main/java/io/legado/app/ui/video/VideoSettings.kt` | NG 设置入口委托清晰度和效果组件 | NG 主题/设置 |
 | `app/src/main/java/io/legado/app/ui/video/VideoPlayerScreen.kt` | 当前播放实例字幕输出表面，跟随窗口大小 | 字幕/全屏 |
 

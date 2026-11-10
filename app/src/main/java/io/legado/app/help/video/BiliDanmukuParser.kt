@@ -1,4 +1,4 @@
-package io.legado.app.help.gsyVideo
+package io.legado.app.help.video
 
 import android.graphics.Color
 import android.text.TextUtils

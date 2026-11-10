@@ -20,7 +20,7 @@
 | video-player-media3 | 复用现有 ExoPlayer、协议依赖、字幕/音轨合并和六档画面效果 |
 | legado-ng-adapter | 公共功能入口、Android 装配、共享图片订阅与资源租约 |
 
-feature-api、feature-backup、source-yiciyuan、tts-multitts-compat、manga-reader-support 和 video-support 为 Kotlin/JVM；其余为 Android Library，minSdk 21。QuickJS Spider 在 Android 23 及以上按需运行，21–22 使用同步 Rhino。模块不引用 NG 实体或全局应用状态。依赖跟随根版本目录，Java 17。
+feature-api、feature-backup、source-yiciyuan、tts-multitts-compat、manga-reader-support 和 video-support 为 Kotlin/JVM；其余为 Android Library。应用最低 API 23，以满足 Media3 1.11.1。QuickJS Spider 在 Android 23 及以上按需运行。模块不引用 NG 实体或全局应用状态。依赖跟随根版本目录，Java 17。
 
 ```powershell
 .\gradlew.bat :lib:feature-api:test :lib:source-yiciyuan:test :lib:tts-multitts-compat:test :lib:extension-compat:testDebugUnitTest :lib:source-runtime:testDebugUnitTest :lib:source-mihon:testDebugUnitTest :lib:source-aniyomi:testDebugUnitTest :lib:legado-ng-adapter:testDebugUnitTest verifyFeatureBoundaries

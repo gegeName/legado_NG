@@ -1,17 +1,9 @@
 package io.legado.app.model
 
-import android.annotation.SuppressLint
-import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import android.content.SharedPreferences
 import android.net.Uri
-import android.view.View
-import android.view.ViewGroup
-import android.view.Window
 import androidx.core.content.edit
-import com.shuyu.gsyvideoplayer.listener.GSYMediaPlayerListener
-import com.shuyu.gsyvideoplayer.utils.CommonUtil
-import com.shuyu.gsyvideoplayer.video.StandardGSYVideoPlayer
 import io.legado.app.R
 import io.legado.app.integration.video.NgVideoBridge
 import io.legado.app.constant.AppLog
@@ -30,11 +22,8 @@ import io.legado.app.help.CacheManager
 import io.legado.app.help.book.getDanmaku
 import io.legado.app.help.book.update
 import io.legado.app.help.coroutine.Coroutine
-import io.legado.app.help.gsyVideo.ExoVideoManager
-import io.legado.app.help.gsyVideo.ExoVideoManager.Companion.FULLSCREEN_ID
-import io.legado.app.help.gsyVideo.FloatingPlayer
-import io.legado.app.help.gsyVideo.VideoPlaybackTarget
-import io.legado.app.help.gsyVideo.VideoPlayer
+import io.legado.app.help.video.VideoPlaybackBridge
+import io.legado.app.help.video.VideoPlaybackTarget
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.rss.Rss
 import io.legado.app.model.webBook.WebBook
@@ -64,6 +53,12 @@ object VideoPlay : CoroutineScope by MainScope(){
     const val VIDEO_PREF_NAME = "video_config"
 
     private val videoPrefs: SharedPreferences by lazy { appCtx.getSharedPreferences(VIDEO_PREF_NAME, MODE_PRIVATE) }
+    var bufferPolicy: Int
+        get() = videoPrefs.getInt("bufferPolicy", 0)
+        set(value) { videoPrefs.edit { putInt("bufferPolicy", value.coerceIn(0, 2)) } }
+    var decoderFallback: Boolean
+        get() = videoPrefs.getBoolean("decoderFallback", true)
+        set(value) { videoPrefs.edit { putBoolean("decoderFallback", value) } }
     /**  是否自动播放  **/
     var autoPlay
         get() = videoPrefs.getBoolean("autoPlay", true)
@@ -95,7 +90,6 @@ object VideoPlay : CoroutineScope by MainScope(){
     /**  竖屏视频  **/
     var isPortraitVideo = false
 
-    val videoManager by lazy { ExoVideoManager() }
     private var isLoading = false
     private val loadScope = CoroutineScope(SupervisorJob() + IO)
     var videoUrl: String? = null //播放链接
@@ -128,22 +122,6 @@ object VideoPlay : CoroutineScope by MainScope(){
     /**
      * 开始播放
      */
-    // Retained only for the unreachable pre-migration controls until visual acceptance.
-    private fun legacyTarget(view: StandardGSYVideoPlayer) = object : VideoPlaybackTarget {
-        private val player = view.getCurrentPlayer()
-        override var seekOnStart: Long
-            get() = player.seekOnStart
-            set(value) { player.seekOnStart = value }
-        override var mapHeadData: Map<String, String>?
-            get() = player.mapHeadData
-            set(value) { player.mapHeadData = value }
-        override fun setUp(url: String?, cache: Boolean, cachePath: File?, title: String?) =
-            player.setUp(url, cache, cachePath, title)
-        override fun startPlayLogic() = player.startPlayLogic()
-    }
-
-    fun startPlay(player: StandardGSYVideoPlayer) = startPlay(legacyTarget(player))
-
     fun startPlay(target: VideoPlaybackTarget) {
         val source = source ?: return
         danmakuStr = null
@@ -168,7 +146,7 @@ object VideoPlay : CoroutineScope by MainScope(){
                 withContext(Main) {
                     player.mapHeadData = analyzeUrl.headerMap
                     val url = analyzeUrl.url
-                    player.setUp(url, false, File(appCtx.externalCache, "exoplayer"), videoTitle)
+                    player.setUp(url, true, File(appCtx.externalCache, "exoplayer"), videoTitle)
                     if (autoPlay) {
                         player.startPlayLogic()
                     }
@@ -201,7 +179,7 @@ object VideoPlay : CoroutineScope by MainScope(){
                         player.mapHeadData = analyzeUrl.headerMap
                         player.setUp(
                             analyzeUrl.url,
-                            false,
+                            true,
                             File(appCtx.externalCache, "exoplayer"),
                             rssArticle.title
                         )
@@ -236,7 +214,7 @@ object VideoPlay : CoroutineScope by MainScope(){
                         val playUrl = analyzeUrl.url
                         withContext(Main) {
                             player.mapHeadData = analyzeUrl.headerMap
-                            player.setUp(playUrl, false, File(appCtx.externalCache, "exoplayer"), rssArticle.title)
+                            player.setUp(playUrl, true, File(appCtx.externalCache, "exoplayer"), rssArticle.title)
                             if (autoPlay) {
                                 player.startPlayLogic()
                             }
@@ -303,7 +281,7 @@ object VideoPlay : CoroutineScope by MainScope(){
                 val playUrl = analyzeUrl.url
                 withContext(Main) {
                     player.mapHeadData = analyzeUrl.headerMap
-                    player.setUp(playUrl, false, File(appCtx.externalCache, "exoplayer"), chapter.title)
+                    player.setUp(playUrl, true, File(appCtx.externalCache, "exoplayer"), chapter.title)
                     if (autoPlay) {
                         player.startPlayLogic()
                     }
@@ -315,34 +293,9 @@ object VideoPlay : CoroutineScope by MainScope(){
         isLoading = false
     }
 
-    /**
-     * 退出全屏，主要用于返回键
-     *
-     * @return 返回是否全屏
-     */
-    fun backFromWindowFull(context: Context?): Boolean {
-        var backFrom = false
-        val vp =
-            (CommonUtil.scanForActivity(context)).findViewById<View?>(Window.ID_ANDROID_CONTENT) as ViewGroup
-        val oldF = vp.findViewById<View?>(FULLSCREEN_ID)
-        if (oldF != null) {
-            backFrom = true
-            CommonUtil.hideNavKey(context)
-            if (videoManager.lastListener() != null) {
-                videoManager.lastListener().onBackFullscreen()
-            }
-        }
-        return backFrom
-    }
-    /**
-     * 页面销毁了记得调用是否所有的video
-     */
     fun releaseAllVideos() {
         NgVideoBridge.invalidate()
-        if (videoManager.listener() != null) {
-            videoManager.listener().onCompletion()
-        }
-        videoManager.releaseMediaPlayer()
+        VideoPlaybackBridge.releasePlayer()
         if (!isLoading) {
             //还原所有状态
             videoUrl = null
@@ -365,65 +318,15 @@ object VideoPlay : CoroutineScope by MainScope(){
             danmakuFile = null
             lockCurScreen = false
             isPortraitVideo = false
-            release()
             if (needClearTemp) {
                 needClearTemp = false
                 FileUtils.delete(videoTempFile)
             }
         }
     }
-    /**
-     * 暂停播放
-     */
-    fun onPause() {
-        if (videoManager.listener() != null) {
-            videoManager.listener().onVideoPause()
-        }
-    }
-
-    /**
-     * 恢复播放
-     */
-    fun onResume() {
-        if (videoManager.listener() != null) {
-            videoManager.listener().onVideoResume()
-        }
-    }
-
-
-    /**
-     * 恢复暂停状态
-     * @param seek 是否产生seek动作,直播设置为false
-     */
-    fun onResume(seek: Boolean) {
-        if (videoManager.listener() != null) {
-            videoManager.listener().onVideoResume(seek)
-        }
-    }
-
-    //播放器移植 - 辅助函数
-    @SuppressLint("StaticFieldLeak")
-    private var sSwitchVideo: StandardGSYVideoPlayer? = null
-    private var sMediaPlayerListener: GSYMediaPlayerListener? = null
-    fun savePlayState(switchVideo: StandardGSYVideoPlayer) {
-        when (switchVideo) {
-            is VideoPlayer -> sSwitchVideo = switchVideo.saveState()
-            is FloatingPlayer -> sSwitchVideo = switchVideo.saveState()
-        }
-        sMediaPlayerListener = switchVideo
-    }
-    fun clonePlayState(switchVideo: StandardGSYVideoPlayer) {
-        when (switchVideo) {
-            is VideoPlayer -> sSwitchVideo?.let { switchVideo.cloneState(it) }
-            is FloatingPlayer -> sSwitchVideo?.let { switchVideo.cloneState(it) }
-        }
-    }
-
-    fun release() {
-        sMediaPlayerListener?.onAutoCompletion()
-        sMediaPlayerListener = null
-        sSwitchVideo = null
-    }
+    fun onPause() = VideoPlaybackBridge.onVideoPause()
+    fun onResume() = VideoPlaybackBridge.onVideoResume()
+    fun onResume(seek: Boolean) = VideoPlaybackBridge.onVideoResume(seek)
 
     fun stopLoading() {
         isLoading = false
@@ -504,8 +407,6 @@ object VideoPlay : CoroutineScope by MainScope(){
         episodes = toc.subList(startInt + 1, endInt)
     }
 
-    fun upDurIndex(offset: Int, player: StandardGSYVideoPlayer): Boolean = upDurIndex(offset, legacyTarget(player))
-
     fun upDurIndex(offset: Int, player: VideoPlaybackTarget): Boolean {
         val episodes = episodes ?: return false
         val index = chapterInVolumeIndex + offset
@@ -528,7 +429,7 @@ object VideoPlay : CoroutineScope by MainScope(){
         val book = book
         val rssStar = rssStar
         val rssRecord = rssRecord
-        val durPos = durPos ?: videoManager.currentPosition.toInt()
+        val durPos = durPos ?: VideoPlaybackBridge.state.value.position.coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
         durChapterPos = durPos
         if (book == null && rssStar == null && rssRecord == null) {
             videoUrl?.let { videoUrl ->

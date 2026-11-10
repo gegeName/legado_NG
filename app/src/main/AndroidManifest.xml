@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- QuickJS client rejects API < 23 before loading the dependency; core app remains API 21. -->
+    <!-- QuickJS client declares API 23; the application minimum is also API 23 for Media3 1.11.1. -->
     <uses-sdk tools:overrideLibrary="com.dokar.quickjs" />
 
     <uses-permission android:name="android.permission.INTERNET" />

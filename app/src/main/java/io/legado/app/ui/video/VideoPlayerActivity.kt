@@ -80,7 +80,7 @@ import android.widget.FrameLayout
 import android.provider.Settings
 import androidx.compose.runtime.*
 import io.legado.app.base.ComposeActivityBinding
-import io.legado.app.help.gsyVideo.VideoPlaybackBridge
+import io.legado.app.help.video.VideoPlaybackBridge
 import io.legado.app.ui.design.theme.NgAppTheme
 import io.legado.app.ui.design.components.compose.NgDialog
 import io.legado.app.ui.design.components.compose.NgDialogTextActionButton

@@ -5,7 +5,7 @@ plugins {
 android {
     namespace 'io.legado.features.media3'
     compileSdk compile_sdk_version
-    defaultConfig { minSdk 21; consumerProguardFiles 'consumer-rules.pro' }
+    defaultConfig { minSdk 23; consumerProguardFiles 'consumer-rules.pro' }
     kotlin { jvmToolchain(17) }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     testOptions { unitTests.returnDefaultValues = true }

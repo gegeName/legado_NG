@@ -4,7 +4,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.res.painterResource
 import io.legado.app.R
 import io.legado.app.ui.design.components.compose.*
-import io.legado.app.help.gsyVideo.VideoPlaybackBridge
+import io.legado.app.help.video.VideoPlaybackBridge
 import io.legado.app.model.VideoPlay
 import io.legado.features.api.video.VideoEnhancement
 
@@ -12,6 +12,10 @@ import io.legado.features.api.video.VideoEnhancement
     val resources by NgVideoBridge.resources.collectAsState()
     var enhancement by remember { mutableStateOf(NgVideoBridge.enhancement) }
     val arrow = painterResource(R.drawable.ic_ng_spinner_arrow_down)
+    var buffer by remember { mutableIntStateOf(VideoPlay.bufferPolicy) }
+    NgFormSelectField("播放缓冲（下次加载生效）", buffer.toString(),
+        io.legado.app.help.video.VideoBufferPolicy.entries.mapIndexed { i, p -> NgFormSelectOption(p.title, i.toString()) },
+        { buffer = it.toInt(); VideoPlay.bufferPolicy = buffer }, arrowIcon = arrow)
     val selected = NgVideoBridge.selection()
     val lines = resources.distinctBy { it.lineId }
     if (lines.size > 1) NgFormSelectField("线路", selected.lineId.orEmpty(), lines.map { NgFormSelectOption(it.lineTitle, it.lineId) }, NgVideoBridge::selectLine, arrowIcon = arrow)

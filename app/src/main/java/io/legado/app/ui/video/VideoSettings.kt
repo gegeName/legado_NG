@@ -49,6 +49,7 @@ internal fun VideoSettings(onDismiss: () -> Unit) {
     var progress by remember { mutableStateOf(VideoPlay.fullBottomProgressBar) }
     var speed by remember { mutableIntStateOf(VideoPlay.longPressSpeed) }
     var picker by rememberSaveable { mutableStateOf(false) }
+    var decoderFallback by remember { mutableStateOf(VideoPlay.decoderFallback) }
     Dialog({ if (picker) picker = false else onDismiss() }) {
         if (picker) VideoHoldSpeedPicker(speed, { picker = false }) {
             speed = it; VideoPlay.longPressSpeed = it; picker = false
@@ -57,6 +58,9 @@ internal fun VideoSettings(onDismiss: () -> Unit) {
                 titleFontSize = 18.sp, titleFontWeight = FontWeight.Medium, actions = {}) {
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                     NgVideoFeatureSettings()
+                    VideoSettingCheck("解码失败时尝试其他解码器（下次加载生效）", decoderFallback) {
+                        decoderFallback = it; VideoPlay.decoderFallback = it
+                    }
                     VideoSettingCheck(stringResource(R.string.auto_play), auto) { auto = it; VideoPlay.autoPlay = it }
                     if (auto) VideoSettingCheck(stringResource(R.string.start_full), full) { full = it; VideoPlay.startFull = it }
                     VideoSettingCheck(stringResource(R.string.full_bottom_progress), progress) { progress = it; VideoPlay.fullBottomProgressBar = it }

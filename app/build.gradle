@@ -62,7 +62,7 @@ android {
     }
     defaultConfig {
         applicationId "io.legado.app.ng"
-        minSdk 21
+        minSdk 23
         targetSdk 36
         versionCode 10000 + gitCommits
         versionName version
@@ -256,9 +256,12 @@ dependencies {
     // For exposing and controlling media sessions
     //implementation "androidx.media3:media3-session:$media3_version"
 
-    //videoPlayer
-    implementation(libs.gsyVideoPlayer.java)
-    implementation(libs.gsyVideoPlayer.exo2)
+    // Video protocols are available even when optional picture effects are disabled.
+    implementation(libs.media3.exoplayer.hls)
+    implementation libs.androidx.media3.exoplayer.dash
+    implementation libs.androidx.media3.exoplayer.rtsp
+    implementation libs.androidx.media3.exoplayer.smoothstreaming
+    implementation libs.androidx.media3.datasource.rtmp
     //弹幕
     implementation (libs.danmakuFlameMaster)
 

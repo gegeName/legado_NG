@@ -1,4 +1,4 @@
-package io.legado.app.help.gsyVideo
+package io.legado.app.help.video
 
 import java.io.File
 

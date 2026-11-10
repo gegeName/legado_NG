@@ -31,15 +31,17 @@ gradle.projectsEvaluated {
                 def enabled = providers.gradleProperty(property).getOrElse('true') == 'true'
                 if (projects.contains("project :lib:$module".toString()) != enabled) violations << "optional module mismatch: $module"
             }
+            def defaultConfig = appProject.android.defaultConfig
+            if (defaultConfig.minSdk.apiLevel != 23) violations << 'app minSdk must be 23 for Media3 1.11.1'
             def manifestFile = appProject.file('build/intermediates/merged_manifest/appDebug/processAppDebugMainManifest/AndroidManifest.xml')
             def manifest = new XmlSlurper(false, false).parse(manifestFile)
-            if (manifest.'uses-sdk'.@'android:minSdkVersion'.text() != '21') violations << 'merged minSdk changed from 21'
+            if (manifest.'uses-sdk'.@'android:minSdkVersion'.text() != '23') violations << 'merged minSdk changed from 23'
             def worker = manifest.application.service.find { it.@'android:name'.text() == 'io.legado.features.tvbox.js.TvBoxJsService' }
             if (!worker || worker.@'android:exported'.text() != 'false' || worker.@'android:isolatedProcess'.text() != 'true') violations << 'invalid TVBox JS worker declaration'
             def authorities = manifest.application.provider.collect { it.@'android:authorities'.text() }.findAll { it }
             if (authorities.size() != authorities.toSet().size()) violations << 'duplicate provider authority'
             if (!violations.isEmpty()) throw new GradleException(violations.join('\n'))
-            logger.lifecycle("Feature intermediate artifacts OK (${owners.size()} shared ABI classes, minSdk 21, isolated JS worker, optional dependencies). DEX/R8/native runtime are not asserted.")
+            logger.lifecycle("Feature intermediate artifacts OK (${owners.size()} shared ABI classes, minSdk 23, isolated JS worker, optional dependencies). DEX/R8/native runtime are not asserted.")
         }
     }
 }

@@ -38,8 +38,8 @@ import androidx.compose.ui.window.PopupProperties
 import io.legado.app.R
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
-import io.legado.app.help.gsyVideo.VideoPlaybackBridge
-import io.legado.app.help.gsyVideo.VideoPlaybackState
+import io.legado.app.help.video.VideoPlaybackBridge
+import io.legado.app.help.video.VideoPlaybackState
 import io.legado.app.model.VideoPlay
 import io.legado.app.integration.video.NgVideoCaptions
 import io.legado.app.ui.design.components.compose.*

@@ -9,10 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import io.legado.app.help.gsyVideo.VideoPlaybackBridge
-import io.legado.app.help.gsyVideo.VideoPlaybackState
-import io.legado.app.help.gsyVideo.BiliDanmukuParser
-import io.legado.app.help.gsyVideo.DanmakuAdapter
+import io.legado.app.help.video.VideoPlaybackBridge
+import io.legado.app.help.video.VideoPlaybackState
+import io.legado.app.help.video.BiliDanmukuParser
+import io.legado.app.help.video.DanmakuAdapter
 import io.legado.app.model.VideoPlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

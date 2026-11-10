@@ -1,4 +1,4 @@
-package io.legado.app.help.gsyVideo
+package io.legado.app.help.video
 
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable

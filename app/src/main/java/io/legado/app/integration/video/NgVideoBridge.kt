@@ -2,8 +2,8 @@ package io.legado.app.integration.video
 
 import android.content.Context
 import io.legado.app.data.entities.BookChapter
-import io.legado.app.help.gsyVideo.VideoPlaybackTarget
-import io.legado.app.help.gsyVideo.VideoPlaybackBridge
+import io.legado.app.help.video.VideoPlaybackTarget
+import io.legado.app.help.video.VideoPlaybackBridge
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.model.VideoPlay
 import io.legado.app.utils.GSON

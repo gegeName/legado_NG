@@ -2,6 +2,8 @@
 
 实施日期：2026-11-09。对应 [迁移方案](LEGADO_FEATURE_MODULE_MIGRATION_PLAN.md)。本记录区分代码接入、本地验证和真实运行验收；编译、可控 HTTP 夹具或桌面音频样本均不代表 Android 设备验收。
 
+2026-11-10 视频后续改造：移除 GSY/IJK 适配层，改由应用直接管理 Media3；增加可选缓冲配置和解码器回退。详见 [Media3 改造记录](VIDEO_MEDIA3_MIGRATION.md)。下面 P5 的“复用 NG 单一播放器”现指直接管理的 Media3 会话。
+
 ## 基线与工作区
 
 - 目标：`D:\project\legado_NG`，分支 `codex/migrate-legado-features`，HEAD `7b6087410f287511080f2a93b82795231f4b72fd`。
