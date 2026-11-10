@@ -557,26 +557,29 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                     contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
                     requestBuilderTransform = { it.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE).skipMemoryCache(true) })
             }
-            key(page.mImageUrl, ui.sourceOrigin, retry, transform) {
-                GlideImage(page.mImageUrl, "${page.mChapterName} ${page.index + 1}", imageModifier,
-                    contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds,
-                    colorFilter = filter,
-                    requestBuilderTransform = request)
-            }
-            translation.file?.let { translated ->
-                key(translated, translation.revision, ui.translationRevision) {
-                    GlideImage(translated, "译图 ${page.index + 1}", imageModifier,
-                        contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
-                        requestBuilderTransform = { builder ->
-                            builder.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE).skipMemoryCache(true)
-                                .apply { if (transform != null) transform(transform) }
-                                .listener(object : RequestListener<Drawable> {
-                                    override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
-                                        translation.displayFailed(); return false
-                                    }
-                                    override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?, dataSource: DataSource, isFirstResource: Boolean) = false
-                                })
-                        })
+            if (!ui.translationEnabled) {
+                key(page.mImageUrl, ui.sourceOrigin, retry, transform) {
+                    GlideImage(page.mImageUrl, "${page.mChapterName} ${page.index + 1}", imageModifier,
+                        contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds,
+                        colorFilter = filter,
+                        requestBuilderTransform = request)
+                }
+            } else {
+                translation.file?.let { translated ->
+                    key(translated, translation.revision, ui.translationRevision) {
+                        GlideImage(translated, "译图 ${page.index + 1}", imageModifier,
+                            contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
+                            requestBuilderTransform = { builder ->
+                                builder.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE).skipMemoryCache(true)
+                                    .apply { if (transform != null) transform(transform) }
+                                    .listener(object : RequestListener<Drawable> {
+                                        override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
+                                            translation.displayFailed(); return false
+                                        }
+                                        override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?, dataSource: DataSource, isFirstResource: Boolean) = false
+                                    })
+                            })
+                    }
                 }
             }
             if ((loading && pdfPreview == null) || failed) Box(Modifier.fillMaxSize().background(background), Alignment.Center) {

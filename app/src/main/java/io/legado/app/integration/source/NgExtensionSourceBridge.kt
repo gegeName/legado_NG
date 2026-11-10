@@ -8,6 +8,7 @@ import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.applyCustomBookType
 import io.legado.app.help.book.updateTypeFromSource
 import io.legado.app.help.source.getBookType
+import io.legado.app.help.source.SourceHelp
 import io.legado.app.model.webBook.BookChapterList
 import io.legado.app.utils.GSON
 import io.legado.features.adapter.SourceFeatures
@@ -25,12 +26,9 @@ object NgExtensionSourceBridge {
     fun syncSources(sources: List<SourceDescriptor>, providers: Set<String> = sources.map { it.key.provider }.toSet(), applyEnabled: Boolean = false) {
         val dao = appDb.bookSourceDao
         val origins = sources.map { PluginUris.source(it.key) }.toSet()
-        dao.all.filter { old -> runCatching { key(old)?.provider }.getOrNull() in providers && old.bookSourceUrl !in origins }.forEach { old ->
-            old.enabled = false
-            old.enabledExplore = false
-            if (!old.bookSourceComment.orEmpty().contains("[feature-unavailable]")) old.bookSourceComment = old.bookSourceComment.orEmpty() + "\n[feature-unavailable]"
-            dao.insert(old)
-        }
+        dao.all.filter { old ->
+            runCatching { key(old)?.provider }.getOrNull() in providers && old.bookSourceUrl !in origins
+        }.map { it.bookSourceUrl }.distinct().forEach(SourceHelp::deleteBookSource)
         sources.forEach { descriptor ->
             val origin = PluginUris.source(descriptor.key)
             val old = dao.getBookSource(origin)

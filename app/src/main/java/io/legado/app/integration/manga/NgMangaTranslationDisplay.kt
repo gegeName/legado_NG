@@ -21,15 +21,18 @@ internal class NgMangaTranslationDisplay {
     fun displayFailed() { file = null; failed = true }
 }
 
-/** Keeps the original visible while a separate subscriber waits for OCR/text/render. */
+/** Resolves the cached or newly rendered translation for the visible page. */
 @Composable
 internal fun rememberNgMangaTranslation(book: Book?, url: String, chapterId: String, index: Int,
     enabled: Boolean, active: Boolean, settingsRevision: Int): NgMangaTranslationDisplay {
     val state = remember(book?.bookUrl, book?.origin, url, chapterId, index) { NgMangaTranslationDisplay() }
     val generation = remember(state, settingsRevision) { book?.let { NgOriginalImageResources.generation(it.bookUrl) } ?: 0L }
     LaunchedEffect(state, enabled, active, settingsRevision, state.revision) {
-        state.file = null; state.status = null; state.failed = false; state.busy = false
-        if (!enabled || !active || book == null) return@LaunchedEffect
+        state.failed = false
+        if (!enabled || !active || book == null) {
+            state.file = null; state.status = null; state.busy = false
+            return@LaunchedEffect
+        }
         var lease: TranslationFileLease? = null
         try {
             state.busy = true
