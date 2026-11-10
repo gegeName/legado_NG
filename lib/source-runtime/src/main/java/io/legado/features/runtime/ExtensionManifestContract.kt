@@ -37,12 +37,13 @@ object ExtensionManifestContract {
     fun stripLabelPrefix(label: String): String =
         label.substringAfter("Aniyomi: ").substringAfter("Tachiyomi: ")
 
-    fun parseLibVersion(declaredLib: Float?, versionName: String?): Double? {
-        return declaredLib
-            ?.takeUnless { it == 0.0f }
-            ?.toString()
-            ?.toDouble()
-            ?: versionName?.substringBeforeLast('.')?.toDoubleOrNull()
+    fun parseLibVersion(declaredLib: Any?, versionName: String?): Double? {
+        val parsedLib = when (declaredLib) {
+            is Number -> declaredLib.toDouble()
+            is String -> declaredLib.toDoubleOrNull()
+            else -> null
+        }?.takeUnless { it == 0.0 }
+        return parsedLib ?: versionName?.substringBeforeLast('.')?.toDoubleOrNull()
     }
 
     fun supportedLibVersion(kind: ExtensionKind, libVersion: Double?): Double? =

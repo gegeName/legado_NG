@@ -169,6 +169,7 @@ data class BookChapter(
     }
 
     fun getAbsoluteURL(): String {
+        if (baseUrl.startsWith("feature-book://")) return url
         //二级目录解析的卷链接为空 返回目录页的链接
         if (url.startsWith(title) && isVolume) return baseUrl
         val urlMatcher = AnalyzeUrl.paramPattern.matcher(url)

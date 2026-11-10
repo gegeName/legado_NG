@@ -4,7 +4,6 @@ import io.legado.app.constant.AppPattern
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
-import io.legado.app.utils.NetworkUtils
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collect
@@ -26,7 +25,7 @@ internal fun hasCompleteChapterImages(
     if (!hasUsableChapterCacheContent(book, content)) return false
     val matcher = AppPattern.imgPattern.matcher(content!!)
     while (matcher.find()) {
-        val src = NetworkUtils.getAbsoluteURL(chapter.url, matcher.group(1)!!)
+        val src = BookHelp.absoluteImageUrl(chapter, matcher.group(1)!!)
         if (getCachedBookImage(book, src) == null) return false
     }
     return true

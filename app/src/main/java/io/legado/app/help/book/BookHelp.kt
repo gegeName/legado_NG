@@ -141,7 +141,7 @@ object BookHelp {
                 val matcher = AppPattern.imgPattern.matcher(content)
                 while (matcher.find()) {
                     val src = matcher.group(1) ?: continue
-                    val mSrc = NetworkUtils.getAbsoluteURL(it.url, src)
+                    val mSrc = absoluteImageUrl(it, src)
                     imgNames.add("${MD5Utils.md5Encode16(mSrc)}.${getImageSuffix(mSrc)}")
                 }
             }
@@ -213,10 +213,14 @@ object BookHelp {
             val matcher = AppPattern.imgPattern.matcher(content)
             while (matcher.find()) {
                 val src = matcher.group(1) ?: continue
-                val mSrc = NetworkUtils.getAbsoluteURL(bookChapter.url, src)
-                emit(mSrc)
+                emit(absoluteImageUrl(bookChapter, src))
             }
         }
+    }
+
+    fun absoluteImageUrl(bookChapter: BookChapter, src: String): String {
+        if (src.startsWith("feature-image://")) return src.replace("&amp;", "&")
+        return NetworkUtils.getAbsoluteURL(bookChapter.url, src)
     }
 
     suspend fun saveImages(

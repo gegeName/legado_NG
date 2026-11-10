@@ -81,17 +81,26 @@ class MihonProvider(
         val s = source(ref.source) as? HttpSource ?: error("此扩展不支持 HTTP 图片")
         val context = currentCoroutineContext()
         val page = Page(ref.index, ref.pageUrl, ref.imageUrl)
-        if (page.imageUrl.isNullOrBlank()) page.imageUrl = s.getImageUrl(page)
+        if (page.imageUrl.isNullOrBlank()) {
+            check(page.url.isNotBlank()) { "扩展图片页地址为空" }
+            page.imageUrl = s.getImageUrl(page)
+        }
         val response = s.getImage(page)
-        val registration = context[Job]?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { if (it != null) response.close() }
+        val registration = context[Job]?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { if (it != null) closeResponseAsync(response) }
         try {
             context.ensureActive()
             check(response.isSuccessful) { "图片 HTTP ${response.code}" }
             return object : ImageStream {
                 override val stream = response.body.byteStream()
                 override val length = response.body.contentLength()
-                override fun close() { registration?.dispose(); response.close() }
+                override fun close() { registration?.dispose(); closeResponseAsync(response) }
             }
-        } catch (e: Throwable) { registration?.dispose(); response.close(); throw e }
+        } catch (e: Throwable) { registration?.dispose(); closeResponseAsync(response); throw e }
+    }
+
+    private fun closeResponseAsync(response: okhttp3.Response) {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { response.close() }
+        }
     }
 }

@@ -14,7 +14,9 @@ fun DelegateLastClassLoaderCompat(
     return DelegateLastPathClassLoader(dexPath, librarySearchPath, parent)
 }
 
-internal fun isSharedExtensionClass(name: String) = !name.startsWith("eu.kanade.tachiyomi.extension.") &&
+internal fun isSharedExtensionClass(name: String) =
+    !name.startsWith("eu.kanade.tachiyomi.extension.") &&
+    !name.startsWith("eu.kanade.tachiyomi.animeextension.") &&
     listOf("eu.kanade.tachiyomi.", "okhttp3.", "okio.", "kotlin.", "kotlinx.", "rx.",
         "uy.kohesive.injekt.", "org.jsoup.").any(name::startsWith)
 

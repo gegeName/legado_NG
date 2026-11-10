@@ -40,12 +40,13 @@ object PluginUris {
     }
     fun image(ref: ImageReference): String = "feature-image://${ref.source.provider}/${encode(ref.source.nativeId)}?i=${ref.index}&p=${encode(ref.pageUrl)}&u=${encode(ref.imageUrl.orEmpty())}"
     fun image(value: String): ImageReference? {
-        if (value.startsWith("tachiyomi-img://")) {
-            val parts = value.removePrefix("tachiyomi-img://").split('/', limit = 2)
+        val normalizedValue = value.replace("&amp;", "&")
+        if (normalizedValue.startsWith("tachiyomi-img://")) {
+            val parts = normalizedValue.removePrefix("tachiyomi-img://").split('/', limit = 2)
             if (parts.size != 2 || parts[0].toLongOrNull() == null) return null
             return ImageReference(SourceKey("mihon", ContentKind.MANGA, parts[0]), 0, "", decode(parts[1]))
         }
-        val uri = runCatching { URI(value) }.getOrNull() ?: return null
+        val uri = runCatching { URI(normalizedValue) }.getOrNull() ?: return null
         if (uri.scheme != "feature-image" || uri.host != "mihon") return null
         val query = uri.rawQuery.orEmpty().split('&').associate { it.substringBefore('=') to decode(it.substringAfter('=', "")) }
         return ImageReference(SourceKey("mihon", ContentKind.MANGA, decode(uri.rawPath.removePrefix("/"))), query["i"]?.toIntOrNull() ?: 0, query["p"].orEmpty(), query["u"]?.takeIf { it.isNotEmpty() })
