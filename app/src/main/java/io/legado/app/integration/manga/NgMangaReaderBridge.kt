@@ -18,11 +18,17 @@ import io.legado.features.api.manga.ReaderPage
 import io.legado.features.api.manga.ReaderSessionKey
 import io.legado.features.api.host.ResourcePriority
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import splitties.init.appCtx
 
 object NgMangaReaderBridge {
+    private const val imagePrefetchConcurrency = 3
     private val imageWindow = MangaReaderFeatures.ImageWindow()
     val navigation = MangaReaderFeatures.Navigation()
     private val config = object : ConfigPort {
@@ -43,13 +49,19 @@ object NgMangaReaderBridge {
             val chapter = appDb.bookChapterDao.getChapter(snapshot.bookUrl, index)
             val content = chapter?.let { BookHelp.getContent(snapshot, it) }
             if (chapter == null || content.isNullOrEmpty()) false else {
-                var images = 0
-                BookHelp.flowImages(chapter, content).collect { url ->
-                    currentCoroutineContext().ensureActive()
-                    NgOriginalImageResources.resolve(snapshot, capturedSource, url, ResourcePriority.PREFETCH).use { }
-                    images++
+                val urls = BookHelp.flowImages(chapter, content).toList()
+                val permits = Semaphore(imagePrefetchConcurrency)
+                coroutineScope {
+                    urls.map { url ->
+                        async {
+                            permits.withPermit {
+                                currentCoroutineContext().ensureActive()
+                                NgOriginalImageResources.resolve(snapshot, capturedSource, url, ResourcePriority.PREFETCH).use { }
+                            }
+                        }
+                    }.awaitAll()
                 }
-                images > 0
+                urls.isNotEmpty()
             }
         }, report = { _, error -> AppLog.put("漫画章节原图预取失败", error) })
     }

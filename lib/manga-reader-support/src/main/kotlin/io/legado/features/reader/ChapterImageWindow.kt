@@ -6,7 +6,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
 /** Tracks image completion separately from chapter body readiness. A move retires only old work. */
-class ChapterImageWindow(private val concurrency: Int = 1) : AutoCloseable {
+class ChapterImageWindow(private val concurrency: Int = 2) : AutoCloseable {
     init { require(concurrency > 0) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val permits = Semaphore(concurrency)

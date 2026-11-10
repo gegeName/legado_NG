@@ -8,8 +8,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** One network owner per resource, independent subscriber cancellation and protected file leases. */
 class SharedImageResources(
     private val cache: ImageCachePort,
-    private val maxConcurrent: Int = 3,
-    private val maxPrefetch: Int = 1,
+    private val maxConcurrent: Int = 4,
+    private val maxPrefetch: Int = 3,
 ) : ImageResourceResolver, AutoCloseable {
     init { require(maxConcurrent > 0); require(maxPrefetch in 0..maxConcurrent) }
     private class Entry(val key: ImageResourceKey, var priority: ResourcePriority, val order: Long, val isCurrent: () -> Boolean) {
