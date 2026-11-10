@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -58,6 +60,9 @@ object ExtensionRuntime {
     val notLoadedExtensions: StateFlow<Map<String, MangaExtension.NotLoaded>> = _notLoadedExtensionsFlow
     val availableExtensions: StateFlow<List<MangaExtension.Available>> = _availableExtensionsFlow
     val repos: StateFlow<List<MangaExtensionRepo>> = _reposFlow
+    private val _repoStatuses = MutableStateFlow<Map<String, String>>(emptyMap())
+    val repoStatuses: StateFlow<Map<String, String>> = _repoStatuses
+    private val indexRefreshMutex = Mutex()
     val sources: StateFlow<List<RegisteredMangaSource>> = _sourcesFlow
     val animeSources: StateFlow<List<RegisteredAnimeSource>> = _animeSourcesFlow
 
@@ -249,20 +254,22 @@ object ExtensionRuntime {
                 name = name,
                 signingKeyFingerprint = fingerprint,
             )
+            val entries = RepoHelper.fetchIndex(repo)
             ExtensionPrefs.addUserRepo(repo)
             _reposFlow.value = ExtensionPrefs.getRepos()
-
-            scope.launch {
-                runCatching { findAvailableExtensions() }
-                    .onFailure { if (it is CancellationException) throw it }
-            }
+            _availableExtensionsFlow.update { it.filterNot { entry -> entry.repo.indexUrl == indexUrl } + entries }
+            RepoHelper.saveCachedIndex(_availableExtensionsFlow.value)
+            _repoStatuses.update { it + (indexUrl to "已验证，${entries.size} 个扩展") }
+            refreshStatuses()
             repo
         }.onFailure { if (it is CancellationException) throw it }
     }
 
     fun removeRepo(indexUrl: String) {
+        require(_reposFlow.value.none { it.indexUrl == indexUrl && it.isDefault }) { "内置仓库不可移除" }
         ExtensionPrefs.removeRepo(indexUrl)
         _reposFlow.value = ExtensionPrefs.getRepos()
+        _repoStatuses.update { it - indexUrl }
         _availableExtensionsFlow.update { list ->
             list.filterNot { it.repo.indexUrl == indexUrl }
         }
@@ -270,26 +277,45 @@ object ExtensionRuntime {
         refreshStatuses()
     }
 
-    suspend fun findAvailableExtensions(): List<MangaExtension.Available> = withContext(Dispatchers.IO) {
-        val repoList = _reposFlow.value
-        val results = repoList.map { repo ->
-            async { repo to runCatching { RepoHelper.fetchIndex(repo) } }
-        }.awaitAll()
+    suspend fun findAvailableExtensions(indexUrl: String? = null): List<MangaExtension.Available> = withContext(Dispatchers.IO) {
+        // Separate management pages and update checks share the same index/cache writer.
+        indexRefreshMutex.withLock { refreshAvailableExtensions(indexUrl) }
+    }
+
+    private suspend fun refreshAvailableExtensions(indexUrl: String?): List<MangaExtension.Available> = coroutineScope {
+        val repoList = _reposFlow.value.filter { indexUrl == null || it.indexUrl == indexUrl }
+        val previousStatuses = _repoStatuses.value
+        _repoStatuses.update { it + repoList.associate { repo -> repo.indexUrl to "正在刷新…" } }
+        val results = try {
+            repoList.map { repo ->
+                async { repo to runCatching { RepoHelper.fetchIndex(repo) } }
+            }.awaitAll().also { ensureActive() }
+        } catch (e: CancellationException) {
+            _repoStatuses.update { current ->
+                current + repoList.filter { repo -> current[repo.indexUrl] == "正在刷新…" }
+                    .associate { repo -> repo.indexUrl to (previousStatuses[repo.indexUrl] ?: "刷新已取消，保留上次索引") }
+            }
+            throw e
+        }
 
         val failures = mutableListOf<Throwable>()
         val listings = results.flatMap { (repo, result) ->
-            result.getOrElse { e ->
+            result.onSuccess { entries ->
+                _repoStatuses.update { it + (repo.indexUrl to "刷新成功，${entries.size} 个扩展") }
+            }.getOrElse { e ->
                 if (e is CancellationException) throw e
+                _repoStatuses.update { it + (repo.indexUrl to "刷新失败：${e.message ?: e.javaClass.simpleName}（保留上次索引）") }
                 failures += e
                 RuntimeLog.put("扩展仓库拉取失败: ${repo.name}", e)
-                emptyList()
+                _availableExtensionsFlow.value.filter { it.repo.indexUrl == repo.indexUrl }
             }
         }
         if (repoList.isNotEmpty() && failures.size == repoList.size) {
             throw ExtensionException(failures.last().message ?: "扩展仓库拉取失败")
         }
 
-        val merged = listings
+        val retained = _availableExtensionsFlow.value.filter { old -> repoList.none { it.indexUrl == old.repo.indexUrl } }
+        val merged = (retained + listings).filter { entry -> _reposFlow.value.any { it.indexUrl == entry.repo.indexUrl } }
             .groupBy { it.pkgName to it.repo.signingKeyFingerprint.lowercase() }
             .values.map { entries ->
                 entries.maxWith(

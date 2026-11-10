@@ -17,7 +17,7 @@ import io.legado.app.constant.AppPattern
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.model.CheckSource
-import io.legado.app.integration.source.NgExtensionManagerDialog
+import io.legado.app.integration.source.NgSourceManagementActivity
 import io.legado.app.model.CheckSourceTaskStatus
 import io.legado.app.model.CheckSourceTaskStore
 import io.legado.app.ui.association.ImportBookSourceDialog
@@ -265,7 +265,7 @@ class BookSourceActivity :
             BookSourceManageAction.Back -> finish()
             BookSourceManageAction.AddDeclarative -> startActivity<BookSourceEditActivity>()
             BookSourceManageAction.AddJavaScript -> startActivity<JsSourceEditActivity>()
-            BookSourceManageAction.ManageExtensions -> NgExtensionManagerDialog.show(this)
+            BookSourceManageAction.ManageExtensions -> NgSourceManagementActivity.open(this)
             BookSourceManageAction.ImportLocal -> {
                 importDoc.launch(arrayOf("text/*", "application/json", "application/javascript"))
             }

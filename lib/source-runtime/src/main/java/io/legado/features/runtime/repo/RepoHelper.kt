@@ -59,10 +59,13 @@ internal object RepoHelper {
 
     fun normalizeIndexUrl(raw: String): String {
         val input = raw.trim().ifEmpty { throw ExtensionException("仓库地址为空") }
-        val url = input.toHttpUrlOrNull()?.toString()
+        val parsed = input.toHttpUrlOrNull()
             ?: throw ExtensionException("仓库地址无效: $input")
+        val url = if (parsed.encodedPath.endsWith("/repo.json")) {
+            parsed.newBuilder().setPathSegment(parsed.pathSize - 1, "index.min.json").build().toString()
+        } else parsed.toString()
         if (!INDEX_URL_REGEX.matches(url)) {
-            throw ExtensionException("仓库地址须完整指向 index.min.json 或 index.pb: $input")
+            throw ExtensionException("仓库地址须完整指向 repo.json、index.min.json 或 index.pb: $input")
         }
         return url
     }

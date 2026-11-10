@@ -35,6 +35,10 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme.Light"
         tools:ignore="AllowBackup,GoogleAppIndexingWarning,UnusedAttribute">
+        <activity
+            android:name=".integration.source.NgSourceManagementActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
         <!-- 主界面 -->
         <activity
             android:name=".ui.main.MainActivity"

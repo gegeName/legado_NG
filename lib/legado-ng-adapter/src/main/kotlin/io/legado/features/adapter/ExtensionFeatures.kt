@@ -81,15 +81,36 @@ object ExtensionFeatures : AutoCloseable {
         else ExtensionRuntime.setSourceEnabled(key.nativeId.toLong(), enabled)
         sourceRevision.update { it + 1 }
     }
-    private fun MangaExtension.summary(): ExtensionSummary = when (this) {
+    private fun MangaExtension.summary(): ExtensionSummary {
+        val listing = when (this) {
+            is MangaExtension.Available -> this
+            is MangaExtension.Installed -> findListing(ExtensionRuntime.availableExtensions.value)
+        }
+        val summary = when (this) {
         is MangaExtension.Available -> ExtensionSummary("$pkgName@${repo.signingKeyFingerprint}", pkgName, name, versionName, "available", fingerprint = repo.signingKeyFingerprint)
         is MangaExtension.Loaded -> ExtensionSummary(pkgName, pkgName, name, versionName, "loaded", fingerprint = signatures.lastOrNull(), updateAvailable = hasUpdate)
-        is MangaExtension.NotLoaded -> ExtensionSummary(pkgName, pkgName, name, versionName, "notLoaded", reason.toString(), (reason as? MangaExtension.NotLoaded.Reason.Untrusted)?.signatureHash, hasUpdate)
+        is MangaExtension.NotLoaded -> ExtensionSummary(pkgName, pkgName, name, versionName, "notLoaded", when (val failure = reason) {
+            is MangaExtension.NotLoaded.Reason.Untrusted -> "等待信任签名"
+            is MangaExtension.NotLoaded.Reason.Failed -> failure.message
+            MangaExtension.NotLoaded.Reason.Filtered -> "已过滤"
+            MangaExtension.NotLoaded.Reason.Unsigned -> "扩展未签名"
+            MangaExtension.NotLoaded.Reason.UnsupportedLibVersion -> "扩展版本不兼容"
+            MangaExtension.NotLoaded.Reason.Malformed -> "扩展格式无效"
+        }, (reason as? MangaExtension.NotLoaded.Reason.Untrusted)?.signatureHash, hasUpdate)
+        }
+        val repository = when (this) {
+            is MangaExtension.Available -> repo
+            is MangaExtension.Loaded -> repo
+            is MangaExtension.NotLoaded -> repo
+        }
+        return summary.copy(language = lang.orEmpty(), repositoryUrl = repository?.indexUrl, iconUrl = listing?.iconUrl)
     }
     fun changes(): Flow<List<ExtensionSummary>> = combine(ExtensionRuntime.loadedExtensions, ExtensionRuntime.notLoadedExtensions, ExtensionRuntime.availableExtensions) { loaded, failed, available ->
         loaded.values.map { it.summary() } + failed.values.map { it.summary() } + available.filter { it.pkgName !in loaded && it.pkgName !in failed }.map { it.summary() }
     }
-    fun repositories(): List<ExtensionRepository> = ExtensionRuntime.getRepos().map { ExtensionRepository(it.indexUrl, it.name, it.signingKeyFingerprint) }
+    fun repositories(): List<ExtensionRepository> = ExtensionRuntime.getRepos().map { ExtensionRepository(it.indexUrl, it.name, it.signingKeyFingerprint, it.isDefault, ExtensionRuntime.repoStatuses.value[it.indexUrl] ?: "已保存，本次尚未刷新") }
+    fun repositoryChanges(): Flow<List<ExtensionRepository>> = combine(ExtensionRuntime.repos, ExtensionRuntime.repoStatuses) { _, _ -> repositories() }
+    suspend fun refreshRepository(url: String) { ExtensionRuntime.findAvailableExtensions(url) }
     suspend fun refresh() = withContext(Dispatchers.IO) { ExtensionRuntime.findAvailableExtensions(); Unit }
     suspend fun addRepository(url: String) = ExtensionRuntime.addRepo(url).map { ExtensionRepository(it.indexUrl, it.name, it.signingKeyFingerprint) }
     fun removeRepository(url: String) = ExtensionRuntime.removeRepo(url)

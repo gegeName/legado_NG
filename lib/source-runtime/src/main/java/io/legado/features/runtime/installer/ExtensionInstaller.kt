@@ -22,6 +22,10 @@ internal class ExtensionInstaller(private val context: Context) : ExtensionInsta
         ExtensionLoader.installPrivateExtensionFile(context, file, info.pkgName, replaced)
     }
 
+    override fun onInstalled(pkgName: String) {
+        io.legado.features.runtime.ExtensionRuntime.reloadExtensions()
+    }
+
     fun uninstallSharedApk(pkgName: String) {
         val intent = Intent(Intent.ACTION_DELETE, "package:$pkgName".toUri())
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

@@ -48,7 +48,7 @@
 | `app/src/main/java/io/legado/app/help/glide/ImageLoader.kt` | 扩展图片协议交给已注册的加载器 | 普通文件、HTTP、content URI 原分支 |
 | `app/src/main/java/io/legado/app/help/book/BookHelp.kt` | 扩展图片下载委托并复用 NG 严格缓存校验与发布 | 普通图片解密路径、取消 |
 | `app/src/main/java/io/legado/app/ui/book/source/manage/BookSourceManageScreen.kt` | 现有书源菜单增加扩展管理动作 | NG 主题/菜单 |
-| `app/src/main/java/io/legado/app/ui/book/source/manage/BookSourceActivity.kt` | 管理动作委托 integration 对话框 | 应用 Kotlin 编译 |
+| `app/src/main/java/io/legado/app/ui/book/source/manage/BookSourceActivity.kt` | 管理动作打开 integration 的扩展管理 Activity；仓库、TVBox、来源设置为独立页面 | 应用 Kotlin 编译 |
 
 | 漫画资源宿主文件 | 职责与默认行为 | 回归 |
 | --- | --- | --- |
