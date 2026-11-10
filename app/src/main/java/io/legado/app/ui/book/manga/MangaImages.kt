@@ -622,7 +622,11 @@ internal class MangaImagePreloader(
         val plan = NgMangaReaderBridge.prefetch(pages, position, forward, if (ReadManga.book?.isPdf == true) 0 else count)
         // 只读取相邻已缓存文件的尺寸，不额外下载反方向图片。
         if (imageRatios != null) {
-            val nearby = plan.metadata.map { it.resource }.filter { imageRatios.get(it) == 0f }.toSet()
+            val imageBook = ReadManga.book?.takeIf { sourceOrigin == null || it.origin == sourceOrigin }
+            val nearby = if (imageBook == null) emptySet() else plan.metadata.map { it.resource }
+                .filter { imageRatios.get(it) == 0f }
+                .filter { NgOriginalImageResources.hasCachedImage(imageBook, it) }
+                .toSet()
             val metadataIterator = metadataTargets.iterator()
             while (metadataIterator.hasNext()) {
                 val entry = metadataIterator.next()

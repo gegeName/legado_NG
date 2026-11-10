@@ -150,6 +150,8 @@ object NgOriginalImageResources {
     }
     fun options(options: RequestOptions, book: Book, sourceOrigin: String?, url: String): RequestOptions =
         options.set(requestOption, request(book, sourceOrigin, url))
+    fun hasCachedImage(book: Book, url: String): Boolean =
+        getCachedBookImage(BookHelp.getImage(book, url)) != null
     fun fetcher(options: Options): NgOriginalImageFetcher? = options.get(requestOption)?.let {
         NgOriginalImageFetcher(it, options.get(OkHttpModelLoader.loadOnlyWifiOption) == true, options.get(cacheOnlyOption) == true)
     }
