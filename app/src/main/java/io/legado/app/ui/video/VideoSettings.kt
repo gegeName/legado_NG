@@ -19,6 +19,7 @@ import androidx.compose.ui.text.style.TextAlign
 import kotlin.math.roundToInt
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -44,10 +46,12 @@ import io.legado.app.ui.design.theme.NgTheme
 
 @Composable
 internal fun VideoSettings(onDismiss: () -> Unit) {
+    val context = LocalContext.current
     var auto by remember { mutableStateOf(VideoPlay.autoPlay) }
     var full by remember { mutableStateOf(VideoPlay.startFull) }
     var progress by remember { mutableStateOf(VideoPlay.fullBottomProgressBar) }
     var speed by remember { mutableIntStateOf(VideoPlay.longPressSpeed) }
+    var orientationMode by remember { mutableIntStateOf(VideoPlay.fullscreenOrientationMode) }
     var picker by rememberSaveable { mutableStateOf(false) }
     var decoderFallback by remember { mutableStateOf(VideoPlay.decoderFallback) }
     Dialog({ if (picker) picker = false else onDismiss() }) {
@@ -64,6 +68,18 @@ internal fun VideoSettings(onDismiss: () -> Unit) {
                     VideoSettingCheck(stringResource(R.string.auto_play), auto) { auto = it; VideoPlay.autoPlay = it }
                     if (auto) VideoSettingCheck(stringResource(R.string.start_full), full) { full = it; VideoPlay.startFull = it }
                     VideoSettingCheck(stringResource(R.string.full_bottom_progress), progress) { progress = it; VideoPlay.fullBottomProgressBar = it }
+                    Text("全屏方向", color = Color(NgTheme.colors.onSurface), fontSize = 14.sp)
+                    listOf("自动（根据视频比例）", "横屏", "竖屏").forEachIndexed { index, label ->
+                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .clickable(role = Role.RadioButton) {
+                                orientationMode = index
+                                VideoPlay.fullscreenOrientationMode = index
+                                (context as? VideoPlayerActivity)?.onFullscreenOrientationModeChanged()
+                            }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(label, Modifier.weight(1f), color = Color(NgTheme.colors.onSurface), fontSize = 15.sp)
+                            RadioButton(orientationMode == index, onClick = null)
+                        }
+                    }
                     Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button) { picker = true },
                         contentAlignment = Alignment.CenterStart) {
                         Text(stringResource(R.string.press_speed_summary, speed / 10f),
@@ -99,7 +115,7 @@ private fun VideoHoldSpeedPicker(speed: Int, onCancel: () -> Unit, onConfirm: (I
     }) {
         // The dialog measures actions before this flexible viewport, including with the IME open.
         BoxWithConstraints(Modifier.weight(1f, fill = false).fillMaxWidth().heightIn(max = 144.dp)) {
-            val wheelHeight = maxHeight
+            val wheelHeight = this.maxHeight
             LazyColumn(state = list, modifier = Modifier.fillMaxWidth().height(wheelHeight),
                 contentPadding = PaddingValues(vertical = ((wheelHeight - 48.dp) / 2).coerceAtLeast(0.dp)),
                 flingBehavior = rememberSnapFlingBehavior(list), horizontalAlignment = Alignment.CenterHorizontally) {
