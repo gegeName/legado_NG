@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -18,9 +17,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -36,7 +39,6 @@ import io.legado.app.ui.book.manga.config.MangaFooterConfig
 import io.legado.app.ui.book.manga.config.MangaFooterContent
 import io.legado.app.ui.book.manga.entities.MangaPage
 import io.legado.app.ui.design.theme.NgMangaPanelTheme
-import io.legado.app.ui.design.theme.NgTheme
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -124,17 +126,25 @@ internal fun MangaFooterBar(
         }
         Layout(
             modifier = modifier.fillMaxWidth().heightIn(min = 24.dp)
-                .background(Color(NgTheme.colors.surface).copy(alpha = 1f))
                 .padding(horizontal = 6.dp, vertical = 2.dp),
             content = {
                 texts.forEachIndexed { index, text ->
+                    var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
                     Text(
                         text,
-                        color = Color(NgTheme.colors.onSurface).copy(alpha = 1f),
+                        modifier = Modifier.drawWithContent {
+                            textLayout?.let {
+                                drawText(it, color = Color.White,
+                                    drawStyle = Stroke(width = 1.5.dp.toPx()))
+                            }
+                            drawContent()
+                        },
+                        color = Color.Black,
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { textLayout = it },
                         textAlign = when (index) {
                             0 -> TextAlign.Left
                             1 -> TextAlign.Center
