@@ -109,7 +109,7 @@ internal fun MangaInfoBar(
     MangaFooterBar(ui.footer, ui.currentPage, ui.bookName, status.time, status.battery, modifier)
 }
 
-/** 空槽不占宽；两端贴边，非空中间项保持屏幕几何中心。 */
+/** 空槽不占宽；两端保留圆角安全距离，非空中间项保持屏幕几何中心。 */
 @Composable
 internal fun MangaFooterBar(
     config: MangaFooterConfig,
@@ -126,7 +126,7 @@ internal fun MangaFooterBar(
         }
         Layout(
             modifier = modifier.fillMaxWidth().heightIn(min = 24.dp)
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+                .padding(start = 20.dp, top = 2.dp, end = 20.dp, bottom = 8.dp),
             content = {
                 texts.forEachIndexed { index, text ->
                     var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }

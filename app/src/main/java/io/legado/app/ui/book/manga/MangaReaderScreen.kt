@@ -93,7 +93,8 @@ internal fun MangaReaderScreen(
             }
             if (!state.loading && !state.footer.hideFooter) {
                 MangaInfoBar(state, Modifier.align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
                     .semantics { contentDescription = "漫画页脚" }, footerStatus)
             }
         }
