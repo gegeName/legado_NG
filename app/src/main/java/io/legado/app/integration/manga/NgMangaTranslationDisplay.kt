@@ -8,11 +8,13 @@ import io.legado.features.api.manga.TranslationFileLease
 import io.legado.features.api.manga.TranslationPageStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.first
 import java.io.File
 
 @Stable
 internal class NgMangaTranslationDisplay {
     var file by mutableStateOf<File?>(null)
+    var version by mutableStateOf<String?>(null)
     var status by mutableStateOf<TranslationPageStatus?>(null)
     var failed by mutableStateOf(false)
     var busy by mutableStateOf(false)
@@ -27,22 +29,27 @@ internal fun rememberNgMangaTranslation(book: Book?, url: String, chapterId: Str
     enabled: Boolean, active: Boolean, settingsRevision: Int): NgMangaTranslationDisplay {
     val state = remember(book?.bookUrl, book?.origin, url, chapterId, index) { NgMangaTranslationDisplay() }
     val generation = remember(state, settingsRevision) { book?.let { NgOriginalImageResources.generation(it.bookUrl) } ?: 0L }
-    LaunchedEffect(state, enabled, active, settingsRevision, state.revision) {
+    val currentActive by rememberUpdatedState(active)
+    LaunchedEffect(state, enabled, settingsRevision, state.revision) {
         state.failed = false
-        if (!enabled || !active || book == null) {
-            state.file = null; state.status = null; state.busy = false
+        if (!enabled || book == null) {
+            state.file = null; state.version = null; state.status = null; state.busy = false
             return@LaunchedEffect
         }
         var lease: TranslationFileLease? = null
         try {
+            // Once resolved, keep the lease for this composed page across chapter/active changes.
+            // Disposing the page or changing settings still releases it in finally.
+            snapshotFlow { currentActive }.first { it }
             state.busy = true
             lease = NgMangaTranslationBridge.translate(book.copy(), url, chapterId, index, ResourcePriority.VISIBLE, force = state.revision > 0, generation = generation)
-            state.file = lease.file; state.status = lease.status; state.busy = false
+            state.file = lease.file; state.version = lease.version; state.status = lease.status; state.busy = false
             awaitCancellation()
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { state.failed = true; state.busy = false }
         finally {
             state.file = null
+            state.version = null
             state.busy = false
             lease?.close()
         }

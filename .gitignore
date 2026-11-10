@@ -54,3 +54,10 @@ __pycache__/
 /lib/extension-compat/src/test/
 /lib/video-player-media3/src/test/
 /app/src/test/
+
+# Keep the voice removal regression test reviewable.
+!/app/src/test/
+/app/src/test/**
+!/app/src/test/**/
+!/app/src/test/java/io/legado/app/help/tts/TtsVoiceRemovalTest.kt
+/app/src/test/java/io/legado/app/

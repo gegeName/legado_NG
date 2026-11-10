@@ -76,6 +76,7 @@ import io.legado.app.ui.book.manga.entities.ReaderLoading
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -489,7 +490,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
     }
     val translation = rememberNgMangaTranslation(book, page.mImageUrl, page.chapterIndex.toString(), page.index,
         ui.translationEnabled, ui.active && (paged || ui.currentPage?.chapterIndex == page.chapterIndex), ui.translationRevision)
-    var translatedImageLoading by remember(translation.file, translation.revision, ui.translationRevision) {
+    var translatedImageLoading by remember(translation.file, translation.version, translation.revision, ui.translationRevision) {
         mutableStateOf(translation.file != null)
     }
     val pdfPreview = rememberNgPdfPreview(book, page.mImageUrl, ui.active)
@@ -498,6 +499,15 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
     var loading by remember(page.mImageUrl) { mutableStateOf(true) }
     var hasDisplayedImage by remember(page.mImageUrl) { mutableStateOf(false) }
     var failed by remember(page.mImageUrl) { mutableStateOf(false) }
+    var loadingIndicatorVisible by remember(page.mImageUrl) { mutableStateOf(false) }
+    LaunchedEffect(loading, failed, hasDisplayedImage, translation.busy, translatedImageLoading) {
+        loadingIndicatorVisible = false
+        if (loading || translation.busy || translatedImageLoading) {
+            // Cached images normally complete in the same frame; don't flash a loading cover.
+            delay(200)
+            loadingIndicatorVisible = true
+        }
+    }
     var progress by remember(page.mImageUrl) { mutableIntStateOf(0) }
     var retry by remember(page.mImageUrl) { mutableIntStateOf(0) }
     val diagnosticInstance = remember(page.mImageUrl) { MangaScrollDiagnostics.nextInstance() }
@@ -543,7 +553,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
         }
     }
     DisposableEffect(page.mImageUrl, retry, transform) {
-        loading = true; failed = !hasDisplayedImage
+        loading = !hasDisplayedImage; failed = false; progress = 0
         ProgressManager.addListener(page.mImageUrl) { _, percentage, _, _ -> progress = percentage }
         onDispose { ProgressManager.removeListener(page.mImageUrl) }
     }
@@ -563,29 +573,29 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                     contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
                     requestBuilderTransform = { it.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE).skipMemoryCache(true) })
             }
-            if (!ui.translationEnabled) {
-                key(page.mImageUrl, ui.sourceOrigin, retry, transform) {
-                    GlideImage(page.mImageUrl, "${page.mChapterName} ${page.index + 1}", imageModifier,
-                        contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds,
-                        colorFilter = filter,
-                        requestBuilderTransform = request)
-                }
-            } else {
+            // Keep the original mounted while resolving/decoding a translation.
+            key(page.mImageUrl, ui.sourceOrigin, retry, transform) {
+                GlideImage(page.mImageUrl, "${page.mChapterName} ${page.index + 1}", imageModifier,
+                    contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds,
+                    colorFilter = filter,
+                    requestBuilderTransform = request)
+            }
+            if (ui.translationEnabled) {
                 translation.file?.let { translated ->
-                    key(translated, translation.revision, ui.translationRevision) {
-                        GlideImage(translated, "译图 ${page.index + 1}", imageModifier,
-                            contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
-                            requestBuilderTransform = { builder ->
+                    val translatedRequest: (RequestBuilder<Drawable>) -> RequestBuilder<Drawable> =
+                        remember(context, translated, translation.version, transform) {
+                            { builder ->
                                 builder.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                                     .skipMemoryCache(false)
-                                    .signature(com.bumptech.glide.signature.ObjectKey("${translated.absolutePath}:${translation.revision}:${ui.translationRevision}"))
+                                    .signature(com.bumptech.glide.signature.ObjectKey(translation.version.orEmpty()))
                                     .priority(com.bumptech.glide.Priority.HIGH)
                                     .override(context.resources.displayMetrics.widthPixels, Target.SIZE_ORIGINAL)
                                     .apply { if (transform != null) transform(transform) }
                                     .listener(object : RequestListener<Drawable> {
                                         override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
                                             translatedImageLoading = false
-                                            translation.displayFailed(); return false
+                                            translation.displayFailed()
+                                            return false
                                         }
                                         override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?, dataSource: DataSource, isFirstResource: Boolean): Boolean {
                                             if (resource.intrinsicWidth > 0 && resource.intrinsicHeight > 0) {
@@ -596,11 +606,16 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                                             return false
                                         }
                                     })
-                            })
+                            }
+                        }
+                    key(translated, translation.version, transform) {
+                        GlideImage(translated, "译图 ${page.index + 1}", imageModifier,
+                            contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
+                            requestBuilderTransform = translatedRequest)
                     }
                 }
             }
-            if ((!ui.translationEnabled && (loading && pdfPreview == null || failed))) Box(Modifier.fillMaxSize().background(background), Alignment.Center) {
+            if (showMangaOriginalPlaceholder(loading, failed, hasDisplayedImage || (ui.translationEnabled && translation.file != null && !translatedImageLoading), loadingIndicatorVisible, pdfPreview != null)) Box(Modifier.fillMaxSize().background(background), Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (failed) Text("重新加载", Modifier.clickable { retry++ }.padding(16.dp), color = Color.White, fontSize = 18.sp)
                     else {
@@ -609,10 +624,10 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                     }
                 }
             }
-            if (ui.translationEnabled && (translation.busy || translatedImageLoading)) {
-                Box(Modifier.fillMaxSize().background(background.copy(alpha = 0.45f)), Alignment.Center) {
+            if (ui.translationEnabled && loadingIndicatorVisible && (translation.busy || translatedImageLoading)) {
+                Box(Modifier.align(Alignment.BottomEnd).background(background.copy(alpha = 0.85f)).padding(8.dp), Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(Modifier.size(36.dp), color = Color.White, strokeWidth = 3.dp)
+                        CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                         Text(if (translation.busy) "翻译中" else "加载译图", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 12.sp)
                     }
                 }

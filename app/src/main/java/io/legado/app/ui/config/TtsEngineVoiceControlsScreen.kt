@@ -1,6 +1,9 @@
 package io.legado.app.ui.config
 
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -41,9 +45,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import io.legado.app.R
+import io.legado.app.ui.design.components.compose.NgDialog
+import io.legado.app.ui.design.components.compose.NgDialogTextActionButton
 import io.legado.app.ui.design.components.compose.NgFloatingSearchToolbar
 import io.legado.app.ui.design.components.compose.NgFloatingTabBar
 import io.legado.app.ui.design.components.compose.NgFloatingTabSpec
@@ -67,6 +74,10 @@ internal data class TtsEngineVoiceControlsState(
     val allEnabled: Boolean = true,
     val speed: Int = 50,
     val pitch: Int = 50,
+    val checking: Boolean = false,
+    val checkProgress: String? = null,
+    val checkResult: String? = null,
+    val failedVoiceIds: Set<String> = emptySet(),
 )
 
 @Immutable
@@ -100,6 +111,10 @@ internal fun TtsEngineVoiceControlsScreen(
     onToggleLanguage: (String) -> Unit,
     onToggleGender: (String) -> Unit,
     onToggleAll: () -> Unit,
+    onCheckVoices: () -> Unit,
+    onCancelCheck: () -> Unit,
+    onDismissCheckResult: () -> Unit,
+    onDeleteFailedVoices: () -> Unit,
     onSystemSpeedChange: (Int) -> Unit,
     onSystemPitchChange: (Int) -> Unit,
     onSystemValueChangeFinished: () -> Unit,
@@ -137,6 +152,39 @@ internal fun TtsEngineVoiceControlsScreen(
             onToggleAll = onToggleAll,
         )
 
+        if (state.canToggleAll || state.checking) {
+            TextButton(
+                onClick = if (state.checking) onCancelCheck else onCheckVoices,
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                Text(if (state.checking) "取消检测 · ${state.checkProgress.orEmpty()}" else "一键检测不可用音色")
+            }
+        }
+        state.checkResult?.let { result ->
+            Dialog(onDismissRequest = onDismissCheckResult) {
+                NgDialog(
+                    title = "音色检测结果",
+                    actions = {
+                        NgDialogTextActionButton(
+                            text = if (state.failedVoiceIds.isEmpty()) "关闭" else "保留", onClick = onDismissCheckResult,
+                        )
+                        if (state.failedVoiceIds.isNotEmpty()) {
+                            NgDialogTextActionButton(
+                                text = "删除失败音色（${state.failedVoiceIds.size}）",
+                                onClick = onDeleteFailedVoices,
+                            )
+                        }
+                    },
+                ) {
+                    Text(
+                        result,
+                        modifier = Modifier.heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState()),
+                        color = Color(NgTheme.colors.onSurface),
+                    )
+                }
+            }
+        }
         state.message?.takeIf(String::isNotBlank)?.let { message ->
             Text(
                 text = message,

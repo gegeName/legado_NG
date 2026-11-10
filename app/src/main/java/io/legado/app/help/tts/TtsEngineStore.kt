@@ -509,6 +509,16 @@ object TtsEngineStore {
         return engine(engineId)
     }
 
+    /** 删除用户确认的音色，同时清理静态目录，避免缓存清空后重新出现。 */
+    @Synchronized
+    fun deleteVoices(engineId: String, voiceIds: Set<String>): TtsEngineSetting? {
+        val latest = engine(engineId) ?: return null
+        val updated = latest.withoutVoices(voiceIds)
+        val remaining = updated.effectiveVoices()
+        saveEngine(updated, restartReadAloud = false)
+        return upsertVoiceList(updated, remaining, restartReadAloud = false)
+    }
+
     @Synchronized
     fun upsertVoiceList(
         engineId: String,

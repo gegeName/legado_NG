@@ -108,6 +108,8 @@ class TtsEngineConfigFragment : BaseFragment(0),
     private var engineConfigSaveJob: Job? = null
     private var engineConfigSaveRevision = 0L
     private var engineRefreshJob: Job? = null
+    private var voiceCheckRevision = 0L
+    private var voiceCheckJob: Job? = null
     private var voiceRefreshJob: Job? = null
     private var voiceRefreshRevision = 0L
     private var engineRefreshing by mutableStateOf(false)
@@ -236,6 +238,10 @@ class TtsEngineConfigFragment : BaseFragment(0),
                                 onToggleLanguage = ::toggleVoiceLanguageFilter,
                                 onToggleGender = ::toggleVoiceGenderFilter,
                                 onToggleAll = ::toggleAllVoicesEnabled,
+                                onCheckVoices = ::checkVoices,
+                                onCancelCheck = ::cancelVoiceCheck,
+                                onDismissCheckResult = ::dismissVoiceCheckResult,
+                                onDeleteFailedVoices = ::deleteFailedVoices,
                                 onSystemSpeedChange = { value ->
                                     voiceControlsState = voiceControlsState.copy(speed = value)
                                 },
@@ -336,6 +342,7 @@ class TtsEngineConfigFragment : BaseFragment(0),
     }
 
     private fun cancelVoiceRefresh() {
+        cancelVoiceCheck()
         voiceRefreshRevision++
         voiceRefreshJob?.cancel()
         voiceRefreshJob = null
@@ -1553,6 +1560,85 @@ class TtsEngineConfigFragment : BaseFragment(0),
         refreshEngines()
     }
 
+    private fun dismissVoiceCheckResult() {
+        voiceControlsState = voiceControlsState.copy(checkResult = null, failedVoiceIds = emptySet())
+    }
+
+    private fun cancelVoiceCheck() {
+        voiceCheckRevision++
+        voiceCheckJob?.cancel()
+        voiceCheckJob = null
+        voiceControlsState = voiceControlsState.copy(checking = false, checkProgress = null)
+        dismissVoiceCheckResult()
+    }
+
+    private fun checkVoices() {
+        if (voiceCheckJob?.isActive == true || voiceRefreshJob?.isActive == true) return
+        saveFormChangesIfNeeded()
+        val engine = currentDisplayedEngine()?.takeIf { it.type == TtsEngineType.SCRIPT } ?: return
+        if (!engine.enabled) {
+            requireContext().toastOnUi(R.string.tts_preview_engine_disabled)
+            return
+        }
+        val voices = allVoices.toList()
+        if (voices.isEmpty()) return
+        voicePreviewController?.release()
+        dismissVoiceCheckResult()
+        voiceControlsState = voiceControlsState.copy(checking = true, checkProgress = "0/${voices.size}")
+        val cacheDir = requireContext().cacheDir
+        val revision = ++voiceCheckRevision
+        voiceCheckJob = viewLifecycleOwner.lifecycleScope.launch {
+            val failures = linkedMapOf<String, String>()
+            try {
+                voices.forEachIndexed { index, voice ->
+                    voiceControlsState = voiceControlsState.copy(
+                        checkProgress = "${index + 1}/${voices.size} ${voice.name}",
+                    )
+                    val error = probeTtsVoice(cacheDir, engine, voice)
+                    if (revision != voiceCheckRevision) return@launch
+                    if (error != null) failures[voice.id] = "${voice.name}：$error"
+                }
+                voiceControlsState = voiceControlsState.copy(
+                    checkResult = "已检测 ${voices.size} 个音色，成功 ${voices.size - failures.size} 个，失败 ${failures.size} 个。" +
+                        if (failures.isEmpty()) "" else "\n网络或服务临时异常也可能导致失败，可保留后重新检测。是否删除以下音色？\n\n" + failures.values.joinToString("\n"),
+                    failedVoiceIds = failures.keys.toSet(),
+                )
+            } finally {
+                if (revision == voiceCheckRevision) {
+                    voiceControlsState = voiceControlsState.copy(checking = false, checkProgress = null)
+                }
+            }
+        }
+    }
+
+    private fun deleteFailedVoices() {
+        val engineId = currentEngineId ?: return
+        val ids = voiceControlsState.failedVoiceIds
+        if (ids.isEmpty()) return
+        dismissVoiceCheckResult()
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val updated = withContext(Dispatchers.IO) {
+                    TtsEngineStore.deleteVoices(engineId, ids)
+                } ?: return@launch
+                autoFetchedVoiceEngineIds.add(engineId)
+                engineSettingsSnapshot = engineSettingsSnapshot.map { if (it.id == engineId) updated else it }
+                if (currentEngineId == engineId) {
+                    detailEngineSnapshot = updated
+                    draftEngine = null
+                    setVoiceItems(updated.effectiveVoices())
+                    updateVoiceMessage(updated)
+                }
+                refreshEngines()
+                context?.toastOnUi("已删除 ${ids.size} 个音色")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                context?.toastOnUi("删除失败：${error.localizedMessage}")
+            }
+        }
+    }
+
     private fun maybeAutoFetchVoices() {
         val engine = currentDisplayedEngine() ?: return
         if (
@@ -1566,6 +1652,7 @@ class TtsEngineConfigFragment : BaseFragment(0),
     }
 
     private fun fetchVoices() {
+        if (voiceCheckJob?.isActive == true) return
         if (voiceRefreshJob?.isActive == true) return
         val source = currentDisplayedEngine() ?: return
         val engineDraft = engineFromForm(source).takeIf { it.isScriptEngine } ?: return
@@ -1631,6 +1718,7 @@ class TtsEngineConfigFragment : BaseFragment(0),
     }
 
     private fun previewCurrentVoice(voice: TtsVoice? = null) {
+        if (voiceCheckJob?.isActive == true) return
         val currentEngine = currentDisplayedEngine() ?: return
         if (currentEngine.type == TtsEngineType.SYSTEM) {
             voicePreviewController?.preview(
