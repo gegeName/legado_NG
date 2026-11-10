@@ -65,6 +65,7 @@ import io.legado.app.integration.manga.NgMangaSpreadImage
 import io.legado.app.integration.manga.NgMangaPdfBridge
 import io.legado.app.integration.manga.rememberNgPdfPreview
 import io.legado.features.api.manga.TranslationPageStatus
+import io.legado.features.api.manga.DisplayItem
 import io.legado.app.integration.image.NgOriginalImageResources
 import io.legado.features.api.host.ResourcePriority
 import io.legado.app.ui.book.manga.entities.BaseMangaPage
@@ -125,6 +126,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
     val displayPages by rememberUpdatedState(remember(ui.pages, ui.horizontal, ui.doublePage, ui.rtl) {
         NgMangaLayout.display(ui.pages, ui.horizontal && ui.doublePage, ui.rtl)
     })
+    val prefetchItems = remember(displayPages) { NgMangaLayout.prefetchItems(displayPages) }
     val displayJump = NgMangaLayout.slot(displayPages, ui.pages.getOrNull(ui.jumpIndex), ui.jumpIndex)
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -299,7 +301,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
             var previous = list.firstVisibleItemIndex
             snapshotFlow { list.firstVisibleItemIndex }.distinctUntilChanged().collect { position ->
                 preloader.update(
-                    displayPages, position, ui.preload, position >= previous,
+                    displayPages, prefetchItems, position, ui.preload, position >= previous,
                     transformation = imageTransformation,
                 )
                 previous = position
@@ -614,12 +616,13 @@ internal class MangaImagePreloader(
     private var decodedTransformationKey: String? = null
     fun update(
         pages: List<BaseMangaPage>,
+        prefetchItems: List<DisplayItem?>,
         position: Int,
         count: Int,
         forward: Boolean,
         transformation: Transformation<Bitmap>? = null,
     ) {
-        val plan = NgMangaReaderBridge.prefetch(pages, position, forward, if (ReadManga.book?.isPdf == true) 0 else count)
+        val plan = NgMangaReaderBridge.prefetchItems(prefetchItems, position, forward, if (ReadManga.book?.isPdf == true) 0 else count)
         // 只读取相邻已缓存文件的尺寸，不额外下载反方向图片。
         if (imageRatios != null) {
             val imageBook = ReadManga.book?.takeIf { sourceOrigin == null || it.origin == sourceOrigin }

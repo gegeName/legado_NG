@@ -28,8 +28,11 @@ object ImagePrefetchPlanner {
         }
         val first = (visible.toLong() - metadataRadius).coerceAtLeast(0).toInt()
         val last = (visible.toLong() + metadataRadius).coerceAtMost(items.lastIndex.toLong()).toInt()
-        val metadata = (first..last).flatMap { items[it]?.pages.orEmpty() }.map { it.key }.distinct()
-        return ReaderPrefetchPlan(network.values.toList(), metadata.distinctBy { it.resource })
+        val metadata = linkedMapOf<String, PageKey>()
+        for (index in first..last) {
+            items[index]?.pages.orEmpty().forEach { page -> metadata.putIfAbsent(page.key.resource, page.key) }
+        }
+        return ReaderPrefetchPlan(network.values.toList(), metadata.values.toList())
     }
 }
 

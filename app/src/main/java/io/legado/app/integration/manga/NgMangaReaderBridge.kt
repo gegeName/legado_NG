@@ -14,6 +14,7 @@ import io.legado.app.ui.book.manga.entities.MangaPage
 import io.legado.features.adapter.MangaReaderFeatures
 import io.legado.features.api.host.ConfigPort
 import io.legado.features.api.manga.PageKey
+import io.legado.features.api.manga.DisplayItem
 import io.legado.features.api.manga.ReaderPage
 import io.legado.features.api.manga.ReaderSessionKey
 import io.legado.features.api.host.ResourcePriority
@@ -73,6 +74,8 @@ object NgMangaReaderBridge {
         NgMangaTranslationBridge.invalidateBook(bookId)
         NgOriginalImageResources.invalidateBook(bookId)
     }
+    fun prefetchItems(items: List<DisplayItem?>, visible: Int, forward: Boolean, count: Int) =
+        NgMangaLayout.prefetch(items, visible, forward, count)
     fun prefetch(pages: List<BaseMangaPage>, visible: Int, forward: Boolean, count: Int) =
-        NgMangaLayout.prefetch(pages, visible, forward, count)
+        NgMangaLayout.prefetch(NgMangaLayout.prefetchItems(pages), visible, forward, count)
 }
