@@ -41,7 +41,11 @@ internal fun rememberNgMangaTranslation(book: Book?, url: String, chapterId: Str
             awaitCancellation()
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { state.failed = true; state.busy = false }
-        finally { state.file = null; lease?.close() }
+        finally {
+            state.file = null
+            state.busy = false
+            lease?.close()
+        }
     }
     return state
 }

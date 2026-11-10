@@ -7,12 +7,15 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.milliseconds
 
 class MangaTranslationEngine(private val host: TranslationPlatform) : AutoCloseable {
+    private val PAGE_TIMEOUT_MS = TimeUnit.MINUTES.toMillis(3)
     private val tasks = TranslationCoordinator()
     // Bounds full-page bitmaps/native OCR memory; network/text providers have their own quotas.
     private val pixels = Semaphore(1)
@@ -26,9 +29,11 @@ class MangaTranslationEngine(private val host: TranslationPlatform) : AutoClosea
         try { return withContext(Dispatchers.IO) {
             val capturedHost = object : TranslationPlatform by host { override val ai = host.ai }
             tasks.resolve(identity(request, settings, capturedHost.ai?.identity.orEmpty()), priority, force) { publish ->
-                pixels.withPermit {
-                    currentCoroutineContext().ensureActive()
-                    original().use { lease -> TranslationPipeline(capturedHost, settings, translator, publish).translate(request, lease.file, force) }
+                withTimeout(PAGE_TIMEOUT_MS.milliseconds) {
+                    pixels.withPermit {
+                        currentCoroutineContext().ensureActive()
+                        original().use { lease -> TranslationPipeline(capturedHost, settings, translator, publish).translate(request, lease.file, force) }
+                    }
                 }
             }.also { acquired = it }
         } } catch (e: Throwable) { acquired?.close(); throw e }
