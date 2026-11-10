@@ -17,7 +17,7 @@ data class TranslationSettings(
     val targetLanguage: String = "zh-CN",
     val textEngine: String = "auto",
     val recognitionEngine: String = "mlkit",
-    val preloadCount: Int = 0,
+    val preloadCount: Int = 4,
     val providers: TranslationProviderConfig = TranslationProviderConfig(),
     val maxPixels: Long = 8_000_000,
 ) {
