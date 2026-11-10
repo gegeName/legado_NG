@@ -47,7 +47,7 @@ object TtsScriptEngineClient {
     fun sampleText(engine: TtsEngineSetting, voice: TtsVoice?): String {
         voice?.sampleText?.takeIf { it.isNotBlank() }?.let { return it }
         engine.sampleText?.takeIf { it.isNotBlank() }?.let { return it }
-        return DEFAULT_TTS_PREVIEW_TEXT
+        return voice?.previewText() ?: DEFAULT_TTS_PREVIEW_TEXT
     }
 
     fun loadOptions(engine: TtsEngineSetting, coroutineContext: CoroutineContext = EmptyCoroutineContext): List<TtsScriptOption> {

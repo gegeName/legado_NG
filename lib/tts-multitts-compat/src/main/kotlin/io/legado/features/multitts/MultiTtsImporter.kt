@@ -63,12 +63,16 @@ object MultiTtsImporter {
                 }
             }
             if (voices.isEmpty()) { diagnostics += local; diagnostics += ImportDiagnostic(code, "无可支持的音色"); continue }
-            val duplicateNames = voices.groupBy { it.name }.count { it.value.size > 1 }
-            val duplicateIds = voices.groupBy { it.extra["voiceCode"] }.count { it.value.size > 1 }
-            if (duplicateNames > 0 || duplicateIds > 0) local += ImportDiagnostic(code, "保留 $duplicateNames 组同名、$duplicateIds 组相同默认编号；未按名称删除")
+            val deduplicated = if (provider == "xfpeiyin") preferHigherSampleRate(voices) else voices to 0
+            if (deduplicated.second > 0) {
+                local += ImportDiagnostic(code, "已按采样率剔除 ${deduplicated.second} 条重复音色，保留高音质版本")
+            }
+            val importedVoices = deduplicated.first
+            val duplicateNames = importedVoices.groupBy { it.name }.count { it.value.size > 1 }
+            if (duplicateNames > 0) local += ImportDiagnostic(code, "保留 $duplicateNames 组同名但不同音色编号的条目")
             local += ImportDiagnostic(code, "协议模板已生成；导入不会联网验证音色或自动切换朗读引擎")
             val id = "multitts:$provider:${encode(namespace)}:${encode(code)}"
-            drafts += ProviderScripts.build(id, engine.text("name").ifBlank { code }, provider, voices, engine, local)
+            drafts += ProviderScripts.build(id, engine.text("name").ifBlank { code }, provider, importedVoices, engine, local)
         }
         val knownCodes = engines.map { it.text("code") }.toSet()
         catalog.keys.filterNot { it in knownCodes }.forEach { diagnostics += ImportDiagnostic(it, "未找到对应引擎定义") }
@@ -80,7 +84,49 @@ object MultiTtsImporter {
         val merged = linkedMapOf<String, ImportedVoice>()
         existing.forEach { merged[it.id] = it }
         draft.voices.forEach { merged[it.id] = it }
-        return ProviderScripts.build(draft.id, draft.name, draft.provider, merged.values.toList(), draft.originalEngine, draft.diagnostics)
+        val voices = merged.values.toList()
+        val deduplicated = if (draft.provider == "xfpeiyin") preferHigherSampleRate(voices) else voices to 0
+        val diagnostics = if (deduplicated.second > 0) {
+            draft.diagnostics + ImportDiagnostic(
+                draft.originalEngine.text("code"),
+                "已按采样率剔除 ${deduplicated.second} 条重复音色，保留高音质版本",
+            )
+        } else {
+            draft.diagnostics
+        }
+        return ProviderScripts.build(draft.id, draft.name, draft.provider, deduplicated.first, draft.originalEngine, diagnostics)
+    }
+
+    private fun preferHigherSampleRate(voices: List<ImportedVoice>): Pair<List<ImportedVoice>, Int> {
+        val groups = linkedMapOf<String, MutableList<ImportedVoice>>()
+        voices.forEach { voice ->
+            val voiceCode = voice.extra["voiceCode"]?.toString().orEmpty()
+            val key = if (voiceCode.isNotBlank()) "voice:$voiceCode" else "id:${voice.id}"
+            groups.getOrPut(key) { arrayListOf() } += voice
+        }
+        var removed = 0
+        val result = groups.values.map { duplicates ->
+            if (duplicates.size == 1) return@map duplicates.single()
+            removed += duplicates.size - 1
+            val winner = duplicates.maxBy { sampleRate(it) }
+            val styles = linkedMapOf<String, Map<*, *>>()
+            duplicates.forEach { duplicate ->
+                (duplicate.extra["styles"] as? List<*>)
+                    .orEmpty()
+                    .mapNotNull { it as? Map<*, *> }
+                    .forEach { style ->
+                        val styleId = style["id"]?.toString().orEmpty()
+                        if (styleId.isNotBlank()) styles.putIfAbsent(styleId, style)
+                    }
+            }
+            winner.copy(extra = winner.extra + ("styles" to styles.values.toList()))
+        }
+        return result to removed
+    }
+
+    private fun sampleRate(voice: ImportedVoice): Int {
+        val original = voice.extra["original"] as? Map<*, *> ?: return 0
+        return original["sampleRate"]?.toString()?.toDoubleOrNull()?.toInt() ?: 0
     }
 
     fun independent(draft: ScriptEngineDraft, namespace: String): ScriptEngineDraft = ProviderScripts.build(

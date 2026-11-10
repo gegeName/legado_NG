@@ -16,6 +16,7 @@ enum class TtsEngineType {
 }
 
 const val DEFAULT_TTS_PREVIEW_TEXT = "前不见古人，后不见来者。念天地之悠悠，独怆然而涕下。"
+const val DEFAULT_ENGLISH_TTS_PREVIEW_TEXT = "Hello, this is a voice preview."
 
 data class TtsVoice(
     @SerializedName("id")
@@ -159,6 +160,10 @@ data class TtsVoiceStyle(
 
 fun TtsVoice.previewText(): String {
     sampleText?.takeIf { it.isNotBlank() }?.let { return it }
+    val normalizedLanguage = language.orEmpty().trim().lowercase().replace('_', '-')
+    if (normalizedLanguage == "english" || normalizedLanguage == "en" || normalizedLanguage.startsWith("en-")) {
+        return DEFAULT_ENGLISH_TTS_PREVIEW_TEXT
+    }
     return DEFAULT_TTS_PREVIEW_TEXT
 }
 

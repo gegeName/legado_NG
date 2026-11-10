@@ -1233,11 +1233,22 @@ class TtsHttpForwarderClientTest {
     }
 
     @Test
-    fun previewText_usesDefaultPreviewTextForAllLanguages() {
+    fun previewText_usesLanguageAppropriateDefaultAndKeepsCustomText() {
         assertEquals(DEFAULT_TTS_PREVIEW_TEXT, TtsVoice(id = "zh", name = "zh", language = "zh-CN").previewText())
         assertEquals(DEFAULT_TTS_PREVIEW_TEXT, TtsVoice(id = "ja", name = "ja", language = "ja-JP").previewText())
         assertEquals(DEFAULT_TTS_PREVIEW_TEXT, TtsVoice(id = "ko", name = "ko", language = "ko-KR").previewText())
-        assertEquals(DEFAULT_TTS_PREVIEW_TEXT, TtsVoice(id = "en", name = "en", language = "en-US").previewText())
+        assertEquals(DEFAULT_ENGLISH_TTS_PREVIEW_TEXT, TtsVoice(id = "en", name = "en", language = "en-US").previewText())
+        assertEquals(DEFAULT_ENGLISH_TTS_PREVIEW_TEXT, TtsVoice(id = "en", name = "en", language = "en_US").previewText())
+        assertEquals(DEFAULT_ENGLISH_TTS_PREVIEW_TEXT, TtsVoice(id = "en", name = "en", language = "en").previewText())
+        assertEquals("Custom preview", TtsVoice(id = "en", name = "en", language = "en-US", sampleText = "Custom preview").previewText())
+    }
+
+    @Test
+    fun scriptPreviewText_fallsBackToVoiceLanguageAfterEngineSample() {
+        val english = TtsVoice(id = "en", name = "English", language = "en-US")
+        assertEquals(DEFAULT_ENGLISH_TTS_PREVIEW_TEXT, TtsScriptEngineClient.sampleText(engine, english))
+        assertEquals("Engine preview", TtsScriptEngineClient.sampleText(engine.copy(sampleText = "Engine preview"), english))
+        assertEquals("Voice preview", TtsScriptEngineClient.sampleText(engine.copy(sampleText = "Engine preview"), english.copy(sampleText = "Voice preview")))
     }
 
     @Test
