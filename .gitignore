@@ -33,7 +33,9 @@ __pycache__/
 *.pyc
 /outputs/
 /.gradle_home/
-/lib/extension-compat/src/test/
+/lib/extension-compat/src/test/**
+!/lib/extension-compat/src/test/**/
+!/lib/extension-compat/src/test/java/io/legado/features/extensioncompat/HosterAbiTest.kt
 /lib/feature-api/src/test/
 /lib/feature-backup/src/test/
 /lib/manga-pdf-support/src/test/
@@ -49,3 +51,4 @@ __pycache__/
 /lib/video-support/src/test/
 /lib/legado-ng-adapter/src/test/
 /app/src/test/
+/lib/extension-compat/src/test/
