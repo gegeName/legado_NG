@@ -5,6 +5,7 @@ import android.net.Uri
 import io.legado.app.help.tts.TtsEngineSetting
 import io.legado.app.help.tts.TtsEngineStore
 import io.legado.app.help.tts.TtsEngineType
+import io.legado.app.help.tts.TtsEngineImportConflictAction
 import io.legado.app.help.tts.TtsVoice
 import io.legado.app.integration.FeatureBootstrap
 import io.legado.app.utils.GSON
@@ -55,13 +56,19 @@ object NgMultiTtsImportAdapter {
         return FileImport.Text(out.toString("UTF-8").removePrefix("\uFEFF"))
     }
 
-    fun importText(preview: MultiTtsImportResult, mergeExisting: Boolean): String {
+    data class ImportPayload(val content: String, val conflictAction: TtsEngineImportConflictAction)
+
+    fun importPayload(preview: MultiTtsImportResult, mergeExisting: Boolean): ImportPayload {
         val independentNamespace = java.util.UUID.randomUUID().toString()
-        return GSON.toJson(preview.engines.map { original ->
+        val content = GSON.toJson(preview.engines.map { original ->
             val draft = if (mergeExisting) original else FeatureBootstrap.features.independentMultiTts(original, independentNamespace)
             val oldVoices = if (mergeExisting) TtsEngineStore.engine(draft.id)?.effectiveVoices().orEmpty() else emptyList()
             toSetting(FeatureBootstrap.features.mergeMultiTts(draft, oldVoices.map(::toImportedVoice)))
         })
+        return ImportPayload(
+            content = content,
+            conflictAction = if (mergeExisting) TtsEngineImportConflictAction.OVERWRITE else TtsEngineImportConflictAction.ASK,
+        )
     }
 
     fun projectCatalog(engines: List<TtsEngineSetting>) {

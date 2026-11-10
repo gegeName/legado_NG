@@ -148,6 +148,9 @@ internal fun BookSourceManageScreen(
     checkTaskState: CheckSourceTaskState,
     onAction: (BookSourceManageAction) -> Unit,
 ) {
+    val totalSourceCount = remember(sources) {
+        sources.asSequence().map(BookSourcePart::bookSourceUrl).distinct().count()
+    }
     val enabledFilter = stringResource(R.string.enabled)
     val disabledFilter = stringResource(R.string.disabled)
     val loginFilter = stringResource(R.string.need_login)
@@ -210,7 +213,7 @@ internal fun BookSourceManageScreen(
         }
         BookSourceManageBottomDock(
             selectedCount = selectedUrls.size,
-            totalCount = sources.distinctBy(BookSourcePart::bookSourceUrl).size,
+            totalCount = totalSourceCount,
             modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
             onAction = onAction,
         )
@@ -755,7 +758,7 @@ private fun BookSourceFlatList(
     canReorder: Boolean,
     onAction: (BookSourceManageAction) -> Unit,
 ) {
-    val sourceVersions = sources.map { System.identityHashCode(it) }
+    val sourceVersions = remember(sources) { sources.map { System.identityHashCode(it) } }
     var orderedSources by remember(sourceVersions) { mutableStateOf(sources) }
     val listState = rememberLazyListState()
     var isReordering by remember { mutableStateOf(false) }
@@ -843,8 +846,8 @@ private fun BookSourceGroupedList(
     onAction: (BookSourceManageAction) -> Unit,
 ) {
     val noGroup = stringResource(R.string.no_group)
-    val sectionVersion = sources.map {
-        Triple(it.bookSourceUrl, it.bookSourceName, it.bookSourceGroup)
+    val sectionVersion = remember(sources) {
+        sources.map { Triple(it.bookSourceUrl, it.bookSourceName, it.bookSourceGroup) }
     }
     val sections = remember(sectionVersion, noGroup) {
         sources

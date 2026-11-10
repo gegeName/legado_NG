@@ -3,7 +3,9 @@ package io.legado.app.integration
 import android.app.Application
 import com.google.gson.JsonParser
 import io.legado.app.help.tts.TtsEngineSetting
+import io.legado.app.help.tts.TtsEngineStore
 import io.legado.app.help.tts.TtsEngineType
+import io.legado.app.help.tts.TtsEngineImportConflictAction
 import io.legado.app.help.tts.TtsScriptEngineClient
 import io.legado.app.help.tts.TtsScriptEngineClient.toAudioResponse
 import io.legado.app.integration.tts.NgMultiTtsImportAdapter
@@ -65,6 +67,22 @@ class MultiTtsIntegrationTest {
         assertEquals("function voices(){}", (NgMultiTtsImportAdapter.read("function voices(){}".byteInputStream(), EmptyCoroutineContext) as NgMultiTtsImportAdapter.FileImport.Text).content)
         val cancelled = Job().apply { cancel() }
         assertThrows(CancellationException::class.java) { NgMultiTtsImportAdapter.read(backup().inputStream(), cancelled) }
+    }
+
+    @Test fun updateImportUsesOverwriteWhileIndependentImportAvoidsConflicts() {
+        val preview = (NgMultiTtsImportAdapter.read(backup().inputStream(), EmptyCoroutineContext)
+            as NgMultiTtsImportAdapter.FileImport.Backup).preview
+        val update = NgMultiTtsImportAdapter.importPayload(preview, mergeExisting = true)
+        assertEquals(TtsEngineImportConflictAction.OVERWRITE, update.conflictAction)
+        assertEquals(preview.engines.single().id, GSON.fromJson(update.content, Array<TtsEngineSetting>::class.java).single().id)
+
+        val independent = NgMultiTtsImportAdapter.importPayload(preview, mergeExisting = false)
+        assertEquals(TtsEngineImportConflictAction.ASK, independent.conflictAction)
+        val imported = GSON.fromJson(independent.content, Array<TtsEngineSetting>::class.java).single()
+        assertNotEquals(preview.engines.single().id, imported.id)
+        val normalized = TtsEngineStore.normalizeEditedEngine(imported, imported).getOrThrow()
+        assertEquals("huoshan", normalized.voices.single().extra?.get("provider")?.asString)
+        assertEquals("non_numeric", normalized.voices.single().extra?.get("voiceCode")?.asString)
     }
 
     @Test fun explicitJobReachesNgJsHostAndCancelsBeforeOrDuringScriptPreparation() {

@@ -51,6 +51,7 @@ import io.legado.app.ui.widget.TitleBar
 import io.legado.app.ui.widget.code.CodeView
 import io.legado.app.ui.widget.code.addJsPattern
 import io.legado.app.ui.widget.dialog.applyNgWindow
+import io.legado.app.utils.DebugLog
 import io.legado.app.utils.SelectFileContract
 import io.legado.app.utils.getPrefString
 import io.legado.app.utils.hideSoftInput
@@ -66,6 +67,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
+
+private const val MULTITTS_IMPORT_LOG_TAG = "MultiTtsImport"
 
 class TtsEngineConfigFragment : BaseFragment(0),
     ConfigBackHandler {
@@ -656,19 +659,40 @@ class TtsEngineConfigFragment : BaseFragment(0),
             }
             result.onSuccess { file ->
                 when (file) {
-                    is NgMultiTtsImportAdapter.FileImport.Text -> importTtsEngineText(file.content)
+                    is NgMultiTtsImportAdapter.FileImport.Text -> importTtsEngineText(
+                        file.content,
+                        logImportFailures = true,
+                    )
                     is NgMultiTtsImportAdapter.FileImport.Backup -> {
                         modalDialog?.dismiss()
                         modalDialog = NgMultiTtsImportDialog.show(requireContext(), file.preview) { merge ->
                             lifecycleScope.launch {
-                                val text = withContext(Dispatchers.IO) { NgMultiTtsImportAdapter.importText(file.preview, merge) }
-                                importTtsEngineText(text)
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        NgMultiTtsImportAdapter.importPayload(file.preview, merge)
+                                    }.onFailure {
+                                        if (it is CancellationException) throw it
+                                    }
+                                }
+                                result.onSuccess { payload ->
+                                    importTtsEngineText(
+                                        payload.content,
+                                        payload.conflictAction,
+                                        logImportFailures = true,
+                                    )
+                                }.onFailure {
+                                    DebugLog.e(MULTITTS_IMPORT_LOG_TAG, "Local backup conversion failed", it)
+                                    requireContext().toastOnUi(it.localizedMessage ?: "导入失败")
+                                }
                             }
                         }
                     }
                 }
             }
-                .onFailure { requireContext().toastOnUi(it.localizedMessage ?: "导入失败") }
+                .onFailure {
+                    DebugLog.e(MULTITTS_IMPORT_LOG_TAG, "Local file read or parse failed", it)
+                    requireContext().toastOnUi(it.localizedMessage ?: "导入失败")
+                }
         }
     }
 
@@ -736,19 +760,21 @@ class TtsEngineConfigFragment : BaseFragment(0),
 
     private fun importTtsEngineText(
         content: String,
-        conflictAction: TtsEngineImportConflictAction = TtsEngineImportConflictAction.ASK
+        conflictAction: TtsEngineImportConflictAction = TtsEngineImportConflictAction.ASK,
+        logImportFailures: Boolean = false,
     ) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 TtsEngineStore.importEngineText(content, conflictAction).onSuccess(NgMultiTtsImportAdapter::projectCatalog)
             }
-            handleTtsEngineImportResult(result, content)
+            handleTtsEngineImportResult(result, content, logImportFailures)
         }
     }
 
     private fun handleTtsEngineImportResult(
         result: Result<List<TtsEngineSetting>>,
-        content: String
+        content: String,
+        logImportFailures: Boolean = false,
     ) {
         result.onSuccess { engines ->
             autoFetchedVoiceEngineIds.removeAll(engines.map { it.id }.toSet())
@@ -759,6 +785,9 @@ class TtsEngineConfigFragment : BaseFragment(0),
             if (conflict != null) {
                 showTtsEngineImportConflictDialog(content, conflict)
             } else {
+                if (logImportFailures) {
+                    DebugLog.e(MULTITTS_IMPORT_LOG_TAG, "Local engine import or catalog projection failed", it)
+                }
                 requireContext().toastOnUi(it.localizedMessage ?: "导入失败")
             }
         }

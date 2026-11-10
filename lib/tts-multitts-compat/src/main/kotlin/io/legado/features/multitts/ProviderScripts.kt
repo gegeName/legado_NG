@@ -7,7 +7,7 @@ import java.security.MessageDigest
 
 internal object ProviderScripts {
     const val HUOSHAN_URL = "https://translate.volcengine.com/web/tts/v1"
-    private val placeholders = Regex("\\{\\{(.*?)}}", RegexOption.DOT_MATCHES_ALL)
+    private val placeholders = Regex("\\{\\{(.*?)\\}\\}", RegexOption.DOT_MATCHES_ALL)
     private fun token(text: String) = text.replace(Regex("\\s+"), "")
     private val supported = setOf("voiceCode", "speakText", "java.encodeURI(speakText)", "java.encodeURIComponent(speakText)",
         "speakSpeed", "speakPitch", "speakVolume", "2-speakSpeed*0.015", "speakVolume*4")

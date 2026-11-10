@@ -3,17 +3,22 @@ package io.legado.app.integration.tts
 import android.content.Context
 import androidx.activity.ComponentDialog
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.legado.app.ui.design.components.NgDialogVariant
 import io.legado.app.ui.design.components.compose.NgDialog
 import io.legado.app.ui.design.components.compose.NgDialogTextActionButton
+import io.legado.app.ui.design.theme.NgTheme
 import io.legado.app.ui.design.theme.NgAppTheme
 import io.legado.app.ui.widget.dialog.applyNgWindow
 import io.legado.features.api.tts.MultiTtsImportResult
@@ -37,13 +42,49 @@ object NgMultiTtsImportDialog {
                             }
                         },
                     ) {
-                        Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
-                            Text("导入后可在现有朗读设置中选择。导入不会试听或切换当前引擎。")
-                            preview.engines.forEach { engine ->
-                                Text("${engine.name}（${engine.provider}）：${engine.voices.size} 条音色")
-                                engine.diagnostics.forEach { Text("${it.location}：${it.message}") }
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 440.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            Text(
+                                text = "导入后可在现有朗读设置中选择。导入不会试听或切换当前引擎。",
+                                color = Color(NgTheme.colors.onSurfaceVariant),
+                                fontSize = 14.sp,
+                            )
+                            if (preview.engines.isEmpty()) {
+                                Text(
+                                    text = "未发现可导入的在线音色目录",
+                                    modifier = Modifier.padding(top = 14.dp),
+                                    color = Color(NgTheme.colors.onSurface),
+                                    fontSize = 15.sp,
+                                )
                             }
-                            preview.diagnostics.forEach { Text("${it.location}：${it.message}") }
+                            preview.engines.forEach { engine ->
+                                Text(
+                                    text = "${engine.name}（${engine.provider}）：${engine.voices.size} 条音色",
+                                    modifier = Modifier.padding(top = 14.dp),
+                                    color = Color(NgTheme.colors.onSurface),
+                                    fontSize = 15.sp,
+                                )
+                                engine.diagnostics.forEach { diagnostic ->
+                                    Text(
+                                        text = "${diagnostic.location}：${diagnostic.message}",
+                                        modifier = Modifier.padding(top = 4.dp),
+                                        color = Color(NgTheme.colors.onSurfaceVariant),
+                                        fontSize = 13.sp,
+                                    )
+                                }
+                            }
+                            preview.diagnostics.forEach { diagnostic ->
+                                Text(
+                                    text = "${diagnostic.location}：${diagnostic.message}",
+                                    modifier = Modifier.padding(top = 4.dp),
+                                    color = Color(NgTheme.colors.onSurfaceVariant),
+                                    fontSize = 13.sp,
+                                )
+                            }
                         }
                     }
                 }

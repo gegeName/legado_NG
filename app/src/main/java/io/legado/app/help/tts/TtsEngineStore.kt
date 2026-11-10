@@ -1268,7 +1268,8 @@ object TtsEngineStore {
                     gender = runCatching { voice.gender }.getOrNull(),
                     style = runCatching { voice.style }.getOrNull(),
                     tags = runCatching { voice.tags }.getOrNull().orEmpty(),
-                    sampleText = runCatching { voice.sampleText }.getOrNull()
+                    sampleText = runCatching { voice.sampleText }.getOrNull(),
+                    extra = runCatching { voice.extra }.getOrNull()
                 )
             }.distinctBy { it.id }
     }
