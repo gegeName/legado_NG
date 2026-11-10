@@ -90,7 +90,7 @@ object NgExtensionSourceBridge {
     }
     suspend fun chapters(source: BookSource, book: Book): Result<List<BookChapter>> = runCatching {
         val key = checkNotNull(key(source))
-        val result = SourceFeatures.provider(key).chapters(key, item(book, key))
+        val result = ChapterSequence.oldestFirst(SourceFeatures.provider(key).chapters(key, item(book, key)))
         check(result.isNotEmpty()) { "扩展目录为空" }
         val list = result.map { c -> BookChapter(url = c.id, title = c.title, bookUrl = book.bookUrl, baseUrl = book.bookUrl, index = c.index, isVolume = c.volume, variable = GSON.toJson(mapOf(CHAPTER to GSON.toJson(c)))) }.toCollection(ArrayList())
         BookChapterList.updateBookTocInfo(book, list)

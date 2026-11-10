@@ -490,6 +490,9 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
     val translation = rememberNgMangaTranslation(book, page.mImageUrl, page.chapterIndex.toString(), page.index,
         ui.translationEnabled, ui.active && ui.currentPage?.chapterIndex == page.chapterIndex &&
             (ui.currentPage?.index == page.index || paged), ui.translationRevision)
+    var translatedImageLoading by remember(translation.file, translation.revision, ui.translationRevision) {
+        mutableStateOf(translation.file != null)
+    }
     val pdfPreview = rememberNgPdfPreview(book, page.mImageUrl, ui.active)
     val background = colorResource(R.color.book_ant_10)
     var ratio by remember(page.mImageUrl, imageRatios) { mutableFloatStateOf(imageRatios?.get(page.mImageUrl) ?: 0f) }
@@ -572,19 +575,31 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                         GlideImage(translated, "译图 ${page.index + 1}", imageModifier,
                             contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
                             requestBuilderTransform = { builder ->
-                                builder.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE).skipMemoryCache(true)
+                                builder.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                    .skipMemoryCache(false)
+                                    .signature(com.bumptech.glide.signature.ObjectKey("${translated.absolutePath}:${translation.revision}:${ui.translationRevision}"))
+                                    .priority(com.bumptech.glide.Priority.HIGH)
+                                    .override(context.resources.displayMetrics.widthPixels, Target.SIZE_ORIGINAL)
                                     .apply { if (transform != null) transform(transform) }
                                     .listener(object : RequestListener<Drawable> {
                                         override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
+                                            translatedImageLoading = false
                                             translation.displayFailed(); return false
                                         }
-                                        override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?, dataSource: DataSource, isFirstResource: Boolean) = false
+                                        override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?, dataSource: DataSource, isFirstResource: Boolean): Boolean {
+                                            if (resource.intrinsicWidth > 0 && resource.intrinsicHeight > 0) {
+                                                imageRatios?.put(page.mImageUrl, resource.intrinsicWidth, resource.intrinsicHeight)
+                                                ratio = resource.intrinsicWidth.toFloat() / resource.intrinsicHeight
+                                            }
+                                            translatedImageLoading = false
+                                            return false
+                                        }
                                     })
                             })
                     }
                 }
             }
-            if ((loading && pdfPreview == null) || failed) Box(Modifier.fillMaxSize().background(background), Alignment.Center) {
+            if ((!ui.translationEnabled && (loading && pdfPreview == null || failed))) Box(Modifier.fillMaxSize().background(background), Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (failed) Text("重新加载", Modifier.clickable { retry++ }.padding(16.dp), color = Color.White, fontSize = 18.sp)
                     else {
@@ -593,8 +608,16 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                     }
                 }
             }
-            if (ui.translationEnabled && (translation.busy || translation.failed || translation.status == TranslationPageStatus.PARTIAL)) {
-                Text(if (translation.busy) "翻译中" else if (translation.failed) "翻译失败，点此重试" else "部分译文，点此补译",
+            if (ui.translationEnabled && (translation.busy || translatedImageLoading)) {
+                Box(Modifier.fillMaxSize().background(background.copy(alpha = 0.45f)), Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(Modifier.size(36.dp), color = Color.White, strokeWidth = 3.dp)
+                        Text(if (translation.busy) "翻译中" else "加载译图", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 12.sp)
+                    }
+                }
+            }
+            if (ui.translationEnabled && (translation.failed || translation.status == TranslationPageStatus.PARTIAL)) {
+                Text(if (translation.failed) "翻译失败，点此重试" else "部分译文，点此补译",
                     Modifier.align(Alignment.BottomEnd).background(background.copy(alpha = 0.85f))
                         .clickable(enabled = !translation.busy) { translation.retry() }.padding(8.dp),
                     color = Color.White, fontSize = 12.sp)
