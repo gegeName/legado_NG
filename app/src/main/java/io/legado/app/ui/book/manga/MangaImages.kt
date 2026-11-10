@@ -6,6 +6,9 @@ import android.graphics.BitmapFactory
 import android.graphics.drawable.Drawable
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -624,19 +627,26 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                     }
                 }
             }
-            if (ui.translationEnabled && loadingIndicatorVisible && (translation.busy || translatedImageLoading)) {
-                Box(Modifier.align(Alignment.BottomEnd).background(background.copy(alpha = 0.85f)).padding(8.dp), Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                        Text(if (translation.busy) "翻译中" else "加载译图", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 12.sp)
-                    }
-                }
+            val translationStatus = if (!ui.translationEnabled) null else when {
+                translation.busy || translatedImageLoading -> if (!loadingIndicatorVisible) null
+                    else if (translation.busy) MangaTranslationStatus.TRANSLATING else MangaTranslationStatus.LOADING
+                translation.failed -> MangaTranslationStatus.FAILED
+                translation.status == TranslationPageStatus.PARTIAL -> MangaTranslationStatus.PARTIAL
+                else -> null
             }
-            if (ui.translationEnabled && (translation.failed || translation.status == TranslationPageStatus.PARTIAL)) {
-                Text(if (translation.failed) "翻译失败，点此重试" else "部分译文，点此补译",
-                    Modifier.align(Alignment.BottomEnd).background(background.copy(alpha = 0.85f))
-                        .clickable(enabled = !translation.busy) { translation.retry() }.padding(8.dp),
-                    color = Color.White, fontSize = 12.sp)
+            // Keep the exiting chip's label stable while its fade finishes.
+            var lastTranslationStatus by remember { mutableStateOf(MangaTranslationStatus.TRANSLATING) }
+            SideEffect { translationStatus?.let { lastTranslationStatus = it } }
+            AnimatedVisibility(
+                visible = translationStatus != null,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(120)),
+            ) {
+                MangaTranslationStatusChip(
+                    status = translationStatus ?: lastTranslationStatus,
+                    onRetry = { translation.retry() },
+                )
             }
         }
     }
