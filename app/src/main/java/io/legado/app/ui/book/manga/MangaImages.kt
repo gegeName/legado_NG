@@ -488,8 +488,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
         ReadManga.book?.takeIf { it.bookUrl == ui.bookUrl && it.origin == ui.sourceOrigin }?.copy()
     }
     val translation = rememberNgMangaTranslation(book, page.mImageUrl, page.chapterIndex.toString(), page.index,
-        ui.translationEnabled, ui.active && ui.currentPage?.chapterIndex == page.chapterIndex &&
-            (ui.currentPage?.index == page.index || paged), ui.translationRevision)
+        ui.translationEnabled, ui.active && (paged || ui.currentPage?.chapterIndex == page.chapterIndex), ui.translationRevision)
     var translatedImageLoading by remember(translation.file, translation.revision, ui.translationRevision) {
         mutableStateOf(translation.file != null)
     }
@@ -497,6 +496,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
     val background = colorResource(R.color.book_ant_10)
     var ratio by remember(page.mImageUrl, imageRatios) { mutableFloatStateOf(imageRatios?.get(page.mImageUrl) ?: 0f) }
     var loading by remember(page.mImageUrl) { mutableStateOf(true) }
+    var hasDisplayedImage by remember(page.mImageUrl) { mutableStateOf(false) }
     var failed by remember(page.mImageUrl) { mutableStateOf(false) }
     var progress by remember(page.mImageUrl) { mutableIntStateOf(0) }
     var retry by remember(page.mImageUrl) { mutableIntStateOf(0) }
@@ -525,7 +525,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
             BookCover.loadManga(context, page.mImageUrl, sourceOrigin = ui.sourceOrigin, transformation = transform)
                 .listener(object : RequestListener<Drawable> {
                     override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
-                        loading = false; failed = true; return false
+                        loading = false; failed = !hasDisplayedImage; return false
                     }
                     override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?, dataSource: DataSource, isFirstResource: Boolean): Boolean {
                         MangaScrollDiagnostics.event("IMAGE_READY") {
@@ -536,13 +536,14 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                             imageRatios?.put(page.mImageUrl, resource.intrinsicWidth, resource.intrinsicHeight)
                             ratio = resource.intrinsicWidth.toFloat() / resource.intrinsicHeight
                         }
+                        hasDisplayedImage = true
                         loading = false; failed = false; return false
                     }
                 })
         }
     }
     DisposableEffect(page.mImageUrl, retry, transform) {
-        loading = true; failed = false
+        loading = true; failed = !hasDisplayedImage
         ProgressManager.addListener(page.mImageUrl) { _, percentage, _, _ -> progress = percentage }
         onDispose { ProgressManager.removeListener(page.mImageUrl) }
     }

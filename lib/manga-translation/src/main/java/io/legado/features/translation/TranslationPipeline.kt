@@ -61,7 +61,7 @@ internal class TranslationPipeline(
     private val publish: suspend (File, File) -> Unit,
 ) {
     private val ALGORITHM_VERSION = "ng-manga-translation-v1"
-    private val RENDER_VERSION = "bubble-mask-v4"
+    private val RENDER_VERSION = "bubble-mask-v5"
     private val AI_TIMEOUT_MS = 60_000L
     private val ai = host.ai
     private val aiIdentity = ai?.identity.orEmpty()
@@ -519,7 +519,8 @@ internal class TranslationPipeline(
     @SuppressLint("CheckResult")
     private fun prepareErasure(source: Bitmap, bounds: Rect, background: Int, trace: String, id: String): MangaTextErasure? {
         val padding = (min(bounds.width(), bounds.height()) * 0.12f).toInt().coerceIn(4, 12)
-        val search = max(24, padding * 4)
+        val desiredSearch = max(64, max(bounds.width(), bounds.height()) * 3)
+        val search = min(desiredSearch, ((1000 - max(bounds.width(), bounds.height())) / 2).coerceAtLeast(24))
         val patch = Rect(bounds)
         patch.inset(-search, -search)
         patch.intersect(0, 0, source.width, source.height)
@@ -531,13 +532,19 @@ internal class TranslationPipeline(
         source.getPixels(pixels, 0, patch.width(), patch.left, patch.top, patch.width(), patch.height())
         val text = MangaTextEraser.Box(bounds.left - patch.left, bounds.top - patch.top,
             bounds.right - patch.left, bounds.bottom - patch.top)
-        val overlay = MangaTextEraser.overlay(pixels, patch.width(), patch.height(), text, background, padding)
+        val eraseText = MangaTextEraser.Box(
+            (text.left - padding).coerceAtLeast(0), (text.top - padding).coerceAtLeast(0),
+            (text.right + padding).coerceAtMost(patch.width()), (text.bottom + padding).coerceAtMost(patch.height()),
+        )
+        val overlay = MangaTextEraser.overlay(pixels, patch.width(), patch.height(), eraseText, background, padding)
         val erased = overlay.count { it ushr 24 > 0 }
-        val safe = MangaTextEraser.layoutBounds(pixels, overlay, patch.width(), patch.height(), text, background, padding)
+        val interior = MangaTextEraser.enclosedInterior(pixels, patch.width(), patch.height(), text, background)
+        val safe = MangaTextEraser.layoutBounds(pixels, overlay, patch.width(), patch.height(), text, background, padding,
+            interior ?: text)
             ?: return null
         val layoutBounds = Rect(safe.left + patch.left, safe.top + patch.top,
             safe.right + patch.left, safe.bottom + patch.top)
-        log(trace, "COMPOSE_ERASE id=$id bounds=$bounds layout=$layoutBounds search=$search pixels=$erased mode=bubble_mask")
+        log(trace, "COMPOSE_ERASE id=$id bounds=$bounds layout=$layoutBounds search=$search pixels=$erased bubble=${interior != null}")
         return MangaTextErasure(patch, MangaTextEraser.runs(overlay, patch.width()), layoutBounds, background)
     }
 

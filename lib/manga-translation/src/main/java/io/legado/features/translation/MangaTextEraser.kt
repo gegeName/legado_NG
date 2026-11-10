@@ -125,38 +125,39 @@ internal object MangaTextEraser {
     }
 
     fun layoutBounds(pixels: IntArray, overlay: IntArray, width: Int, height: Int,
-                     text: Box, background: Int, padding: Int): Box? {
+                     text: Box, background: Int, padding: Int, search: Box = text): Box? {
         require(width > 0 && height > 0 && pixels.size.toLong() == width.toLong() * height)
         require(overlay.size == pixels.size && padding >= 0)
         require(text.area > 0L && text.left >= 0 && text.top >= 0 && text.right <= width && text.bottom <= height)
-        val blocked = BitSet(text.width * text.height)
+        require(search.left >= 0 && search.top >= 0 && search.right <= width && search.bottom <= height)
+        val blocked = BitSet(search.width * search.height)
         val margin = min(padding, 2)
-        for (y in max(0, text.top - margin) until min(height, text.bottom + margin)) {
-            for (x in max(0, text.left - margin) until min(width, text.right + margin)) {
+        for (y in max(0, search.top - margin) until min(height, search.bottom + margin)) {
+            for (x in max(0, search.left - margin) until min(width, search.right + margin)) {
                 val index = y * width + x
                 if (overlay[index] ushr 24 != 0 || !isInk(pixels[index], background)) continue
-                for (row in max(text.top, y - margin) until min(text.bottom, y + margin + 1)) {
-                    val left = max(text.left, x - margin) - text.left
-                    val right = min(text.right, x + margin + 1) - text.left
-                    blocked.set((row - text.top) * text.width + left, (row - text.top) * text.width + right)
+                for (row in max(search.top, y - margin) until min(search.bottom, y + margin + 1)) {
+                    val left = max(search.left, x - margin) - search.left
+                    val right = min(search.right, x + margin + 1) - search.left
+                    blocked.set((row - search.top) * search.width + left, (row - search.top) * search.width + right)
                 }
             }
         }
-        val heights = IntArray(text.width + 1)
-        val stack = IntArray(text.width + 1)
+        val heights = IntArray(search.width + 1)
+        val stack = IntArray(search.width + 1)
         var best: Box? = null
         var bestDistance = Long.MAX_VALUE
-        for (y in 0 until text.height) {
-            for (x in 0 until text.width) {
-                heights[x] = if (blocked[y * text.width + x]) 0 else heights[x] + 1
+        for (y in 0 until search.height) {
+            for (x in 0 until search.width) {
+                heights[x] = if (blocked[y * search.width + x]) 0 else heights[x] + 1
             }
             var count = 0
             for (x in heights.indices) {
                 while (count > 0 && heights[stack[count - 1]] > heights[x]) {
                     val rectangleHeight = heights[stack[--count]]
                     val left = if (count == 0) 0 else stack[count - 1] + 1
-                    val candidate = Box(text.left + left, text.top + y + 1 - rectangleHeight,
-                        text.left + x, text.top + y + 1)
+                    val candidate = Box(search.left + left, search.top + y + 1 - rectangleHeight,
+                        search.left + x, search.top + y + 1)
                     if (candidate.width < 2 || candidate.height < 2) continue
                     val distance = abs(candidate.left.toLong() + candidate.right - text.left - text.right) +
                         abs(candidate.top.toLong() + candidate.bottom - text.top - text.bottom)
@@ -170,6 +171,59 @@ internal object MangaTextEraser {
         }
         return best?.takeIf { it.area >= text.area * 0.15 }
     }
+
+    /** Finds a nearby enclosed, nearly uniform interior; open page backgrounds are rejected. */
+    fun enclosedInterior(pixels: IntArray, width: Int, height: Int, text: Box, background: Int): Box? {
+        val radius = max(48, max(text.width, text.height) * 3)
+        val search = Box(max(0, text.left - radius), max(0, text.top - radius),
+            min(width, text.right + radius), min(height, text.bottom + radius))
+        if (search.width.toLong() * search.height > 1_000_000L) return null
+        val centerX = (text.left + text.right) / 2
+        val centerY = (text.top + text.bottom) / 2
+        var seed = -1
+        var seedDistance = Int.MAX_VALUE
+        for (y in text.top until text.bottom) for (x in text.left until text.right) {
+            val index = y * width + x
+            if (nearColor(pixels[index], background, 40)) {
+                val distance = (x - centerX) * (x - centerX) + (y - centerY) * (y - centerY)
+                if (distance < seedDistance) { seed = index; seedDistance = distance }
+            }
+        }
+        if (seed < 0) return null
+        val visited = BitSet(search.width * search.height)
+        val queue = ArrayDeque<Int>()
+        queue.add(seed)
+        visited.set((seed / width - search.top) * search.width + seed % width - search.left)
+        var left = width
+        var top = height
+        var right = -1
+        var bottom = -1
+        var touchesSearchEdge = false
+        while (queue.isNotEmpty()) {
+            val index = queue.removeFirst()
+            val x = index % width
+            val y = index / width
+            left = min(left, x); top = min(top, y); right = max(right, x); bottom = max(bottom, y)
+            if (x == search.left || x == search.right - 1 || y == search.top || y == search.bottom - 1) touchesSearchEdge = true
+            for (ny in max(search.top, y - 1)..min(search.bottom - 1, y + 1)) {
+                for (nx in max(search.left, x - 1)..min(search.right - 1, x + 1)) {
+                    val local = (ny - search.top) * search.width + nx - search.left
+                    if (!visited[local] && nearColor(pixels[ny * width + nx], background, 40)) {
+                        visited.set(local)
+                        queue.add(ny * width + nx)
+                    }
+                }
+            }
+        }
+        if (touchesSearchEdge || right < left || bottom < top) return null
+        val interior = Box(left, top, right + 1, bottom + 1)
+        if (interior.area < text.area || centerX !in interior.left until interior.right || centerY !in interior.top until interior.bottom) return null
+        return interior
+    }
+
+    private fun nearColor(color: Int, reference: Int, tolerance: Int) = color ushr 24 >= 240 &&
+        maxOf(abs((color ushr 16 and 255) - (reference ushr 16 and 255)),
+            abs((color ushr 8 and 255) - (reference ushr 8 and 255)), abs((color and 255) - (reference and 255))) <= tolerance
 
     private fun isInk(color: Int, background: Int): Boolean = color ushr 24 >= 128 &&
         maxOf(abs((color ushr 16 and 255) - (background ushr 16 and 255)),
