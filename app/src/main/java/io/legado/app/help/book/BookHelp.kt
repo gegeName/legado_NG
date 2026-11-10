@@ -19,13 +19,13 @@ import io.legado.app.help.exoplayer.AudioDownloadCache
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.utils.ArchiveUtils
 import io.legado.app.utils.FileUtils
-import io.legado.app.utils.MD5Utils
 import io.legado.app.utils.NetworkUtils
 import io.legado.app.utils.StringUtils
 import io.legado.app.utils.SvgUtils
 import io.legado.app.utils.UrlUtil
 import io.legado.app.utils.createFileIfNotExist
 import io.legado.app.utils.exists
+import io.legado.app.utils.MD5Utils
 import io.legado.app.utils.externalFiles
 import io.legado.app.utils.getFile
 import io.legado.app.utils.isContentScheme

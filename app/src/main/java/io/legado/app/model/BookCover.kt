@@ -187,8 +187,8 @@ object BookCover {
             .apply(options)
             .priority(com.bumptech.glide.Priority.HIGH)
             .override(context.resources.displayMetrics.widthPixels, SIZE_ORIGINAL)
-            .diskCacheStrategy(DiskCacheStrategy.NONE)
-            .skipMemoryCache(true).let {
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .let {
                 if (transformation != null) {
                     it.transform(transformation)
                 } else {
@@ -214,8 +214,7 @@ object BookCover {
         return (if (original != null || pdf != null) Glide.with(context).asFile() else Glide.with(context).downloadOnly())
             .apply(options)
             .priority(com.bumptech.glide.Priority.LOW)
-            .diskCacheStrategy(if (original != null || pdf != null) DiskCacheStrategy.NONE else DiskCacheStrategy.DATA)
-            .skipMemoryCache(true)
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
             .load(original ?: pdf ?: path)
     }
 

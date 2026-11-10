@@ -6,6 +6,7 @@ import com.bumptech.glide.load.model.ModelLoader
 import com.bumptech.glide.load.model.ModelLoaderFactory
 import com.bumptech.glide.load.model.MultiModelLoaderFactory
 import com.bumptech.glide.signature.ObjectKey
+import io.legado.app.help.book.MangaImageCacheKey
 import io.legado.app.help.glide.OkHttpModelLoader
 import java.io.File
 import java.io.InputStream
@@ -20,7 +21,7 @@ object NgOriginalImageFileLoader {
         override fun build(multiFactory: MultiModelLoaderFactory) = object : ModelLoader<NgOriginalImageResources.Request, InputStream> {
             override fun handles(model: NgOriginalImageResources.Request) = true
             override fun buildLoadData(model: NgOriginalImageResources.Request, width: Int, height: Int, options: Options) =
-                ModelLoader.LoadData(ObjectKey(model.book.bookUrl + "\u0000" + model.url + "\u0000" + model.generation),
+                ModelLoader.LoadData(ObjectKey(MangaImageCacheKey.value(model.book, model.url)),
                     NgOriginalImageFetcher(model, options.get(OkHttpModelLoader.loadOnlyWifiOption) == true, options.get(NgOriginalImageResources.cacheOnlyOption) == true))
         }
         override fun teardown() {}
@@ -29,7 +30,7 @@ object NgOriginalImageFileLoader {
         override fun build(multiFactory: MultiModelLoaderFactory) = object : ModelLoader<NgOriginalImageResources.Request, File> {
             override fun handles(model: NgOriginalImageResources.Request) = true
             override fun buildLoadData(model: NgOriginalImageResources.Request, width: Int, height: Int, options: Options) =
-                ModelLoader.LoadData(ObjectKey(model.book.bookUrl + "\u0000" + model.url + "\u0000" + model.generation),
+                ModelLoader.LoadData(ObjectKey(MangaImageCacheKey.value(model.book, model.url)),
                     NgOriginalImageFileFetcher(model, options.get(OkHttpModelLoader.loadOnlyWifiOption) == true, options.get(NgOriginalImageResources.cacheOnlyOption) == true))
         }
         override fun teardown() {}

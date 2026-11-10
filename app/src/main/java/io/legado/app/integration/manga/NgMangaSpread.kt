@@ -45,6 +45,13 @@ internal object NgMangaLayout {
         display.indexOfFirst { it == original || realPages(it).contains(original) }.takeIf { it >= 0 } ?: fallback.coerceIn(0, display.size)
     fun prefetch(display: List<BaseMangaPage>, visible: Int, forward: Boolean, count: Int) =
         MangaReaderFeatures.prefetchItems(display.map { page -> realPages(page).map(::neutral).takeIf { it.isNotEmpty() }?.let { DisplayItem(it, it.first(), it.getOrNull(1)) } }, visible, forward, count)
+    /** Keep the visible originals attached to the preloader until their foreground request takes over. */
+    fun retainedPrefetchResources(display: List<BaseMangaPage>, visible: Int, networkResources: Collection<String>): Set<String> {
+        return buildSet {
+            addAll(networkResources)
+            display.getOrNull(visible)?.let { addAll(realPages(it).map(MangaPage::mImageUrl)) }
+        }
+    }
     fun progress(page: BaseMangaPage, selected: MangaPage?): BaseMangaPage =
         if (page is NgMangaSpread) selected?.takeIf { it in page.originals } ?: page.originals.first() else page
 }

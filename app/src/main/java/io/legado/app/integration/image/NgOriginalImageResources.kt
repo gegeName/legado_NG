@@ -30,7 +30,13 @@ import splitties.init.appCtx
 /** Captures NG entities once; all task/subscriber/priority decisions belong to SharedImageResources. */
 object NgOriginalImageResources {
     data class TranslationInput(val reference: io.legado.features.api.manga.TranslationRequest, val original: suspend () -> FileLease)
-    data class Request(val book: Book, val sourceOrigin: String?, val url: String, val generation: Long)
+    data class Request(
+        val book: Book,
+        val sourceOrigin: String?,
+        val url: String,
+        val generation: Long,
+        val configurationFingerprint: String,
+    )
     val requestOption: Option<Request> = Option.memory("legadoFeatures.originalImage")
     val cacheOnlyOption: Option<Boolean> = Option.memory("legadoFeatures.originalCacheOnly", false)
     private data class Recipe(val book: Book, val source: BookSource?, val url: String, val target: File, var users: Int = 0)
@@ -61,8 +67,7 @@ object NgOriginalImageResources {
             val file = getCachedBookImage(target(key)) ?: return null
             val tag = stamp(file)
             if (File(tag.path + ".pending").exists()) return null
-            if (tag.exists() && tag.readText() != key.configurationFingerprint) return null
-            // Adopt a validated NG cache once. Subsequent configuration changes require a new download.
+            // Match the legacy reader: a valid BookHelp file is a cache hit regardless of source changes.
             if (!tag.exists()) writeStamp(file, key.configurationFingerprint)
             return file
         }
@@ -126,7 +131,11 @@ object NgOriginalImageResources {
         }
     }
     private val shared = SharedImageResources(cache)
-    fun request(book: Book, sourceOrigin: String?, url: String) = Request(book.copy(), sourceOrigin ?: book.origin, url, shared.generation(book.bookUrl))
+    fun request(book: Book, sourceOrigin: String?, url: String): Request {
+        val origin = sourceOrigin ?: book.origin
+        val source = appDb.bookSourceDao.getBookSource(origin)
+        return Request(book.copy(), origin, url, shared.generation(book.bookUrl), fingerprint(source, url))
+    }
     suspend fun translationInput(book: Book, url: String, chapterId: String, pageIndex: Int, priority: ResourcePriority, generation: Long = shared.generation(book.bookUrl)): TranslationInput {
         return withContext(Dispatchers.IO) {
             if (shared.generation(book.bookUrl) != generation) throw CancellationException("图片会话已变化")

@@ -8,15 +8,20 @@ data class ReaderPreferences(val chapterAhead: Int, val chapterBehind: Int, val 
 class ReaderPreferenceStore(private val config: ConfigPort) {
     private val namespace = "manga-reader"
     @Synchronized fun load(legacyChapterCount: Int): ReaderPreferences {
+        val legacyImageCount = legacyChapterCount.coerceIn(2, 12)
         if (config.get(namespace, "version") == null) {
             val count = legacyChapterCount.coerceIn(0, 100)
             config.put(namespace, "chapterAhead", count.toString())
             config.put(namespace, "chapterBehind", minOf(count, 5).toString())
-            config.put(namespace, "imageChapters", "0")
+            config.put(namespace, "imageChapters", legacyImageCount.toString())
             config.put(namespace, "version", "1")
         }
         fun value(key: String, fallback: Int) = (config.get(namespace, key)?.toIntOrNull() ?: fallback).coerceIn(0, 100)
-        return ReaderPreferences(value("chapterAhead", 10), value("chapterBehind", 5), value("imageChapters", 0), config.get(namespace, "doublePage") == "true")
+        // Version 1 seeded image prefetch as zero, which made every page load on demand.
+        val imageChapters = value("imageChapters", legacyImageCount).let {
+            if (it == 0) legacyImageCount else it
+        }
+        return ReaderPreferences(value("chapterAhead", 10), value("chapterBehind", 5), imageChapters, config.get(namespace, "doublePage") == "true")
     }
     @Synchronized fun save(value: ReaderPreferences) {
         require(value.chapterAhead in 0..100 && value.chapterBehind in 0..100 && value.imageChapters in 0..100)

@@ -526,13 +526,16 @@ internal class MangaImagePreloader(
                 metadataTargets[url] = request(url).set(NgOriginalImageResources.cacheOnlyOption, true).preload()
             }
         }
-        val urls = plan.network.map { it.resource }.toSet()
+        // Keep the visible page target alive while Glide's foreground request takes over.
+        // Removing it here cancels an unfinished prefetch exactly when the page becomes visible.
+        val networkUrls = plan.network.map { it.resource }.toSet()
+        val retainedUrls = NgMangaLayout.retainedPrefetchResources(pages, position, networkUrls)
         val iterator = targets.iterator()
         while (iterator.hasNext()) {
             val entry = iterator.next()
-            if (entry.key !in urls) { Glide.with(context).clear(entry.value); iterator.remove() }
+            if (entry.key !in retainedUrls) { Glide.with(context).clear(entry.value); iterator.remove() }
         }
-        for (url in urls) if (url !in targets) {
+        for (url in networkUrls) if (url !in targets) {
             targets[url] = request(url).preload()
         }
     }

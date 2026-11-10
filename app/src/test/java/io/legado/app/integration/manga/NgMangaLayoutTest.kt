@@ -26,4 +26,24 @@ class NgMangaLayoutTest {
         assertEquals(listOf("0/2", "0/3", "0/4"), NgMangaLayout.prefetch(display, 0, true, 3).network.map { it.resource })
         assertTrue(NgMangaLayout.prefetch(display, 0, true, 0).network.isEmpty())
     }
+
+    @Test fun retainedResourcesKeepVisiblePageAndDoNotIncreaseNetworkBudget() {
+        val pages = (0..5).map { page(0, it) }
+        val display = NgMangaLayout.display(pages, false, false)
+        val network = NgMangaLayout.prefetch(display, 1, true, 3).network.map { it.resource }
+        assertEquals(3, network.size)
+        assertEquals(
+            setOf("0/1", "0/2", "0/3", "0/4"),
+            NgMangaLayout.retainedPrefetchResources(display, 1, network),
+        )
+    }
+
+    @Test fun retainedResourcesKeepBothPagesOfVisibleSpread() {
+        val pages = (0..3).map { page(0, it) }
+        val display = NgMangaLayout.display(pages, true, false)
+        assertEquals(
+            setOf("0/0", "0/1", "0/2"),
+            NgMangaLayout.retainedPrefetchResources(display, 0, NgMangaLayout.prefetch(display, 0, true, 1).network.map { it.resource }),
+        )
+    }
 }

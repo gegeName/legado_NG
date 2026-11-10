@@ -92,7 +92,9 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
     val targetLayer = rememberGraphicsLayer()
     val currentRecord = remember { RecordedMangaPage() }
     val targetRecord = remember { RecordedMangaPage() }
-    val preloader = remember(context, ui.bookUrl, ui.sourceOrigin) { MangaImagePreloader(context) }
+    val preloader = remember(context, ui.bookUrl, ui.sourceOrigin) {
+        MangaImagePreloader(context, sourceOrigin = ui.sourceOrigin)
+    }
     DisposableEffect(preloader) { onDispose { preloader.clear() } }
     val background = colorResource(R.color.book_ant_10)
 
