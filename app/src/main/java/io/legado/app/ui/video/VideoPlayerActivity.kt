@@ -212,10 +212,6 @@ class VideoPlayerActivity : VMBaseActivity<ComposeActivityBinding, VideoPlayerVi
             VideoPlaybackBridge.state.collect { state ->
                 if (state.playing || state.preparing) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                if (presentation == VideoPresentation.FULLSCREEN &&
-                    VideoPlay.fullscreenOrientationMode == FULLSCREEN_ORIENTATION_AUTO && state.width > 0 && state.height > 0) {
-                    requestedOrientation = autoFullscreenOrientation(state.width, state.height, state.rotation)
-                }
                 if (!initialPresentation && state.prepared && state.width > 0 && state.height > 0) {
                     initialPresentation = true
                     if (VideoPlay.startFull && VideoPlay.autoPlay) changePresentation(VideoPresentation.FULLSCREEN)
@@ -252,39 +248,9 @@ class VideoPlayerActivity : VMBaseActivity<ComposeActivityBinding, VideoPlayerVi
         requestedOrientation = when (mode) {
             VideoPresentation.WINDOW -> orientation
             VideoPresentation.IMMERSIVE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            VideoPresentation.FULLSCREEN -> fullscreenOrientation()
+            VideoPresentation.FULLSCREEN -> if (VideoPlay.isPortraitVideo) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
-    }
-
-    private fun fullscreenOrientation(): Int = when (VideoPlay.fullscreenOrientationMode) {
-        FULLSCREEN_ORIENTATION_PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-        FULLSCREEN_ORIENTATION_LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        else -> VideoPlaybackBridge.state.value.let { state ->
-            autoFullscreenOrientation(state.width, state.height, state.rotation)
-        }
-    }
-
-    internal fun onFullscreenOrientationModeChanged() {
-        if (presentation == VideoPresentation.FULLSCREEN) {
-            requestedOrientation = fullscreenOrientation()
-        }
-    }
-
-    private fun autoFullscreenOrientation(width: Int, height: Int, rotation: Int): Int {
-        val rotated = rotation % 180 != 0
-        val displayWidth = if (rotated) height else width
-        val displayHeight = if (rotated) width else height
-        return if (displayWidth in 1..<displayHeight) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
-    }
-
-    companion object {
-        private const val FULLSCREEN_ORIENTATION_AUTO = 0
-        private const val FULLSCREEN_ORIENTATION_LANDSCAPE = 1
-        private const val FULLSCREEN_ORIENTATION_PORTRAIT = 2
     }
     override fun setupSystemBar() {
         val windowed = presentation == VideoPresentation.WINDOW

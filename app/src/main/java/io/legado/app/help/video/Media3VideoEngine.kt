@@ -27,7 +27,7 @@ interface VideoPlaybackListener {
     fun onSeekComplete()
     fun onError(what: Int, extra: Int)
     fun onInfo(what: Int, extra: Int)
-    fun onVideoSizeChanged()
+    fun onVideoSizeChanged(rotationDegrees: Int = 0)
     fun onBackFullscreen()
     fun onVideoPause()
     fun onVideoResume()
@@ -90,7 +90,10 @@ internal class Media3VideoEngine {
                 } else if (playbackState == Player.STATE_ENDED) listener?.onAutoCompletion()
             }
             override fun onVideoSizeChanged(videoSize: VideoSize) {
-                if (player === created) listener?.onVideoSizeChanged()
+                if (player === created) listener?.onVideoSizeChanged(videoSize.unappliedRotationDegrees)
+            }
+            override fun onRenderedFirstFrame() {
+                if (player === created) listener?.onVideoSizeChanged(created.videoSize.unappliedRotationDegrees)
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (player !== created) return

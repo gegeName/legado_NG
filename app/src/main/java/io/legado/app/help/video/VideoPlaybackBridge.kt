@@ -1,6 +1,7 @@
 package io.legado.app.help.video
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.media.AudioManager
 import android.view.Surface
 import android.net.ConnectivityManager
@@ -71,6 +72,7 @@ object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
     private var outputWidth = 0
     private var outputHeight = 0
     private var ticker: Job? = null
+    private var dimensionFallback: Job? = null
     private var hasPlaybackPosition = false
     private var playWhenReady = true
     private var selectedSpeed = 1f
@@ -122,6 +124,7 @@ object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
     override fun setUp(url: String?, cache: Boolean, cachePath: File?, title: String?): Boolean {
         networkRetry?.cancel()
         ticker?.cancel()
+        dimensionFallback?.cancel()
         hasPlaybackPosition = false
         manager.releaseMediaPlayer()
         this.url = url
@@ -129,7 +132,42 @@ object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
         this.cachePath = cachePath
         mutableState.value = VideoPlaybackState(title = title.orEmpty(), speed = selectedSpeed,
             position = seekOnStart, mediaRevision = state.value.mediaRevision + 1)
+        if (!url.isNullOrBlank()) fetchVideoDimensions(url, mapHeadData.orEmpty(), state.value.mediaRevision)
         return !url.isNullOrBlank()
+    }
+
+    private fun fetchVideoDimensions(url: String, headers: Map<String, String>, revision: Int) {
+        dimensionFallback = scope.launch(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(url, headers)
+                val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                    ?.toIntOrNull() ?: 0
+                val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                    ?.toIntOrNull() ?: 0
+                val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                    ?.toIntOrNull()?.let { ((it % 360) + 360) % 360 } ?: 0
+                if (width <= 0 || height <= 0) return@launch
+                withContext(Dispatchers.Main.immediate) {
+                    mutableState.update { current ->
+                        if (current.mediaRevision != revision || current.width > 0 && current.height > 0) {
+                            current
+                        } else {
+                            current.copy(width = width, height = height, rotation = rotation)
+                        }
+                    }
+                    if (state.value.mediaRevision == revision && state.value.width > 0 && state.value.height > 0) {
+                        VideoPlay.isPortraitVideo = state.value.aspect < 1f / 1.2f
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Decoder callbacks remain the primary source when metadata probing is unavailable.
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -153,7 +191,7 @@ object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
         // callback must not bind the output or trigger another startup seek.
         seekOnStart = 0
         hasPlaybackPosition = true
-        onVideoSizeChanged()
+        onVideoSizeChanged(state.value.rotation)
         mutableState.update { it.copy(preparing = false, prepared = true, playing = playWhenReady, ended = false,
             duration = manager.duration.coerceAtLeast(0), error = null) }
         ticker?.cancel()
@@ -254,12 +292,13 @@ object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
             10001 -> mutableState.update { it.copy(rotation = extra) }
         }
     }
-    override fun onVideoSizeChanged() {
+    override fun onVideoSizeChanged(rotationDegrees: Int) {
         val sarNum = manager.videoSarNum.coerceAtLeast(1)
         val sarDen = manager.videoSarDen.coerceAtLeast(1)
         val width = (manager.currentVideoWidth.toLong() * sarNum / sarDen).toInt()
         val height = manager.currentVideoHeight
-        mutableState.update { it.copy(width = width, height = height) }
+        if (width <= 0 || height <= 0) return
+        mutableState.update { it.copy(width = width, height = height, rotation = rotationDegrees) }
         VideoPlay.isPortraitVideo = state.value.aspect < 1f / 1.2f
     }
     override fun onBackFullscreen() = Unit

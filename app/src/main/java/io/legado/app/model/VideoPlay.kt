@@ -84,9 +84,6 @@ object VideoPlay : CoroutineScope by MainScope(){
         set(value) {
             videoPrefs.edit { putBoolean("fullBottomProgressBar", value) }
         }
-    var fullscreenOrientationMode: Int
-        get() = videoPrefs.getInt("fullscreenOrientationMode", 0).coerceIn(0, 2)
-        set(value) { videoPrefs.edit { putInt("fullscreenOrientationMode", value.coerceIn(0, 2)) } }
     /**  弹幕滚动速度  **/
     var danmakuSpeed = 1.2f
     /**  锁屏  **/
