@@ -3,14 +3,22 @@ package io.legado.features.translation
 import java.io.File
 
 internal object MangaTranslationPageCache {
-    data class State(val missingIds: Set<String>, val retainedIds: Set<String>) {
-        val complete: Boolean get() = missingIds.isEmpty()
+    data class State(
+        val missingIds: Set<String>,
+        val unrenderedIds: Set<String>,
+        val retainedIds: Set<String>,
+    ) {
+        val complete: Boolean get() = missingIds.isEmpty() && unrenderedIds.isEmpty()
     }
 
-    fun state(regionIds: Set<String>, translations: Map<String, String>, renderedIds: Set<String>): State = State(
-        missingIds = regionIds.filterTo(mutableSetOf()) { translations[it].isNullOrBlank() },
-        retainedIds = regionIds - renderedIds
-    )
+    fun state(regionIds: Set<String>, translations: Map<String, String>, renderedIds: Set<String>): State {
+        val translatedIds = regionIds.filterTo(mutableSetOf()) { !translations[it].isNullOrBlank() }
+        return State(
+            missingIds = regionIds - translatedIds,
+            unrenderedIds = translatedIds - renderedIds,
+            retainedIds = regionIds - renderedIds,
+        )
+    }
 
     fun find(directory: File, key: String, force: Boolean, preferPartial: Boolean = false): File? {
         if (force) return null

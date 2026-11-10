@@ -60,7 +60,8 @@ internal class TranslationPipeline(
     private val publicTranslator: MangaPublicTranslator,
     private val publish: suspend (File, File) -> Unit,
 ) {
-    private val ALGORITHM_VERSION = "ng-manga-translation-v1"
+    private val ALGORITHM_VERSION = "ng-manga-translation-v2"
+    private val TEXT_CACHE_VERSION = "ng-manga-text-cache-v1"
     private val RENDER_VERSION = "bubble-mask-v5"
     private val AI_TIMEOUT_MS = 60_000L
     private val ai = host.ai
@@ -166,7 +167,7 @@ internal class TranslationPipeline(
                 val state = MangaTranslationPageCache.state(regions.mapTo(mutableSetOf()) { it.id },
                     translations, composition.completedIds)
                 complete = state.complete
-                log(trace, "COMPOSE_DONE missing=${state.missingIds} retained=${state.retainedIds}")
+                log(trace, "COMPOSE_DONE missing=${state.missingIds} unrendered=${state.unrenderedIds} retained=${state.retainedIds}")
                 composition.bitmap
             }
             try {
@@ -316,7 +317,7 @@ internal class TranslationPipeline(
 
     private fun textCacheFile(text: String): File {
         val key = sha256(listOf(
-            ALGORITHM_VERSION,
+            TEXT_CACHE_VERSION,
             settings.sourceLanguage,
             settings.targetLanguage,
             settings.textEngine,
