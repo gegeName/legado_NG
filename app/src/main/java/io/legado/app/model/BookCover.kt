@@ -214,7 +214,7 @@ object BookCover {
         return (if (original != null || pdf != null) Glide.with(context).asFile() else Glide.with(context).downloadOnly())
             .apply(options)
             .priority(com.bumptech.glide.Priority.LOW)
-            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .diskCacheStrategy(DiskCacheStrategy.DATA)
             .load(original ?: pdf ?: path)
     }
 

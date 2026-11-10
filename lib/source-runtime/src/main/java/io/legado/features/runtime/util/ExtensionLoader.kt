@@ -332,8 +332,10 @@ internal object ExtensionLoader {
         }
 
         
-        val declaredLibVersion = ExtensionManifestContract.parseLibVersion(
-            metaData.get(ExtensionManifestContract.METADATA_EXTENSION_LIB), versionName
+        val declaredLibVersion = ExtensionManifestContract.parseDeclaredLibVersion(
+            metaData.get(ExtensionManifestContract.METADATA_EXTENSION_LIB_STANDARD),
+            metaData.get(ExtensionManifestContract.METADATA_EXTENSION_LIB),
+            versionName,
         )
         val libVersion = ExtensionManifestContract.supportedLibVersion(kind, declaredLibVersion)
         if (libVersion == null) {

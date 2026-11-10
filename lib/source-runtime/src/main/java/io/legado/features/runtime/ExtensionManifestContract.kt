@@ -16,6 +16,7 @@ object ExtensionManifestContract {
     const val ANIME_METADATA_NSFW = "tachiyomi.animeextension.nsfw"
 
     const val METADATA_NAME = "tachiyomix.name"
+    const val METADATA_EXTENSION_LIB_STANDARD = "tachiyomi.extension-lib"
     const val METADATA_EXTENSION_LIB = "tachiyomix.extensionLib"
     const val METADATA_CONTENT_WARNING = "tachiyomix.contentWarning"
 
@@ -46,8 +47,13 @@ object ExtensionManifestContract {
         return parsedLib ?: versionName?.substringBeforeLast('.')?.toDoubleOrNull()
     }
 
+    fun parseDeclaredLibVersion(standardLib: Any?, legacyLib: Any?, versionName: String?): Double? =
+        parseLibVersion(standardLib ?: legacyLib, versionName)
+
     fun supportedLibVersion(kind: ExtensionKind, libVersion: Double?): Double? =
-        libVersion?.takeIf { it in supportedLibVersions(kind) }
+        libVersion?.let { value ->
+            supportedLibVersions(kind).firstOrNull { kotlin.math.abs(it - value) < 0.001 }
+        }
 
     fun supportedLibVersions(kind: ExtensionKind): List<Double> =
         if (kind == ExtensionKind.ANIME) ANIME_SUPPORTED_LIB_VERSIONS else SUPPORTED_LIB_VERSIONS
