@@ -212,22 +212,53 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                 val center = if (ui.horizontal) width / 2 - pan.x / ui.scale
                     else (height / 2 - pan.y) / ui.scale
                 val info = list.layoutInfo
-                val currentVisible = info.visibleItemsInfo.any { visible ->
-                    displayPages.getOrNull(visible.index)?.chapterIndex == ui.chapterIndex &&
-                        visible.offset < info.viewportEndOffset && visible.offset + visible.size > info.viewportStartOffset
-                }
-                if (pendingJump || appliedJump != ui.jumpRevision) null else info.visibleItemsInfo
-                    .minByOrNull { abs(it.offset + it.size / 2 - center) }?.let { Triple(it.index, it.key, currentVisible) }
-            }.distinctUntilChanged().collect { item ->
-                item?.let { (index, key, currentVisible) ->
-                    if (key == mangaTailKey(displayPages)) {
-                        mangaTailPage(displayPages)?.let { latestPage(NgMangaLayout.progress(it, ui.currentPage)) }
-                    } else displayPages.getOrNull(index)?.takeIf { mangaPageKey(it) == key }?.let { candidate ->
-                        if (io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(ui.chapterIndex, candidate.chapterIndex, currentVisible)) {
-                            latestPage(NgMangaLayout.progress(candidate, ui.currentPage))
+                if (pendingJump || appliedJump != ui.jumpRevision) null else {
+                    val currentVisible = info.visibleItemsInfo.any { visible ->
+                        displayPages.getOrNull(visible.index)?.chapterIndex == ui.chapterIndex &&
+                            visible.offset < info.viewportEndOffset && visible.offset + visible.size > info.viewportStartOffset
+                    }
+                    val centered = info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - center) }
+                        ?.let { displayPages.getOrNull(it.index) }
+                        ?.takeIf { it.chapterIndex == ui.chapterIndex ||
+                            io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(
+                                ui.chapterIndex, it.chapterIndex, currentVisible,
+                            ) }
+                    val boundary = info.visibleItemsInfo.asSequence()
+                        .filter { it.offset < info.viewportEndOffset && it.offset + it.size > info.viewportStartOffset }
+                        .mapNotNull { displayPages.getOrNull(it.index) }
+                        .firstOrNull { candidate ->
+                            candidate.chapterIndex == ui.chapterIndex + 1 &&
+                                io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(
+                                    ui.chapterIndex, candidate.chapterIndex, false,
+                                )
                         }
+                    centered to boundary
+                }
+            }.distinctUntilChanged().collect { item ->
+                item?.let { (centered, boundary) ->
+                    boundary?.let { latestPage(NgMangaLayout.progress(it, ui.currentPage)) }
+                    when {
+                        centered == null -> Unit
+                        centered.chapterIndex == ui.chapterIndex -> latestPage(centered)
+                        io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(
+                            ui.chapterIndex, centered.chapterIndex, false,
+                        ) -> latestPage(NgMangaLayout.progress(centered, ui.currentPage))
+                        else -> Unit
                     }
                 }
+            }
+        }
+        LaunchedEffect(displayPages, ui.chapterIndex, ui.horizontal) {
+            snapshotFlow {
+                val info = list.layoutInfo
+                val threshold = (if (ui.horizontal) width else height) / 2
+                info.visibleItemsInfo.any { visible ->
+                    val page = displayPages.getOrNull(visible.index)
+                    page?.chapterIndex == ui.chapterIndex &&
+                        visible.offset + visible.size >= info.viewportEndOffset - threshold
+                }
+            }.distinctUntilChanged().collect { nearChapterEnd ->
+                if (nearChapterEnd) ReadManga.preloadNextChapter()
             }
         }
         LaunchedEffect(displayPages, ui.preload, ui.active) {
@@ -453,7 +484,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
     } else Modifier
     BoxWithConstraints(modifier.then(diagnosticModifier).background(background), contentAlignment = Alignment.Center) {
         val imageHeight = if (ratio > 0) maxWidth / ratio else viewportHeight
-        val verticalHeight = if (page.index == page.imageCount - 1) maxOf(imageHeight, viewportHeight * (2f / 3)) else imageHeight
+        val verticalHeight = imageHeight
         val fit = paged || ui.horizontal
         val imageModifier = if (fit) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(imageHeight)
         Box(if (fit) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(verticalHeight), Alignment.TopCenter) {

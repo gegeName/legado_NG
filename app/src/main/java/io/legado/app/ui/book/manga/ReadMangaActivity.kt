@@ -186,7 +186,7 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
             @Suppress("UNCHECKED_CAST")
             val pages = data.items as List<BaseMangaPage>
             val book = ReadManga.book
-            val reposition = ui.loading || ui.bookUrl != book?.bookUrl.orEmpty()
+            val reposition = (!ui.preserveScrollOnUpdate && ui.loading) || ui.bookUrl != book?.bookUrl.orEmpty()
             MangaScrollDiagnostics.event("CONTENT") {
                 "reposition=$reposition current=${ReadManga.durChapterIndex}:${ReadManga.durChapterPos} " +
                     "pos=${data.pos} oldCount=${ui.pages.size} count=${pages.size} " +
@@ -210,10 +210,11 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
             if (reposition && data.curFinish) {
                 ui.jumpTo(data.pos)
                 ui.currentPage = data.items.getOrNull(data.pos) as? MangaPage
-                ui.loading = false
-                ui.error = null
             }
             if (data.curFinish) {
+                ui.loading = false
+                ui.error = null
+                ui.preserveScrollOnUpdate = false
                 ui.tailLoading = ReadManga.hasNextChapter && !data.nextFinish
                 ui.tailRetry = false
                 ui.tailMessage = when {
@@ -231,8 +232,8 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
             "candidate=${mangaPageKey(page)} current=${ReadManga.durChapterIndex}:${ReadManga.durChapterPos}"
         }
         when {
-            page.chapterIndex > ReadManga.durChapterIndex -> ReadManga.moveToNextChapter()
-            page.chapterIndex < ReadManga.durChapterIndex -> ReadManga.moveToPrevChapter()
+            page.chapterIndex > ReadManga.durChapterIndex -> ReadManga.moveToNextChapter(preservePosition = true)
+            page.chapterIndex < ReadManga.durChapterIndex -> ReadManga.moveToPrevChapter(preservePosition = true)
             page is MangaPage -> {
                 val visibleKey = "${ui.bookUrl}:${mangaPageKey(page)}"
                 ReadManga.durChapterPos = page.index
@@ -261,10 +262,24 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
         ui.currentPage = ui.pages[position] as? MangaPage
         ui.jumpTo(position)
     }
-    override fun showLoading() { lifecycleScope.launch { ui.loading = true; ui.error = null } }
+    override fun showLoading(preservePosition: Boolean) {
+        lifecycleScope.launch {
+            ui.preserveScrollOnUpdate = preservePosition
+            if (preservePosition) {
+                ui.loading = false
+                ui.tailLoading = true
+                ui.tailRetry = false
+                ui.tailMessage = "加载中"
+            } else {
+                ui.loading = true
+                ui.error = null
+            }
+        }
+    }
     override fun startLoad() { lifecycleScope.launch { ui.tailLoading = true; ui.tailRetry = false; ui.tailMessage = "加载中" } }
     override fun loadFail(msg: String, retry: Boolean) {
         lifecycleScope.launch {
+            ui.preserveScrollOnUpdate = false
             if (ui.loading) { ui.error = msg; ui.retryAllowed = retry }
             else { ui.tailLoading = false; ui.tailRetry = true; ui.tailMessage = "加载失败，点击重试" }
         }

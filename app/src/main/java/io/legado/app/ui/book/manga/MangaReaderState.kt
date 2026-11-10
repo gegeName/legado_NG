@@ -98,6 +98,7 @@ internal class MangaReaderState {
     var tailMessage by mutableStateOf("加载中")
     var tailLoading by mutableStateOf(true)
     var tailRetry by mutableStateOf(false)
+    var preserveScrollOnUpdate by mutableStateOf(false)
     var jumpIndex by mutableIntStateOf(0)
     var jumpRevision by mutableIntStateOf(0)
     var turnDirection by mutableIntStateOf(1)
