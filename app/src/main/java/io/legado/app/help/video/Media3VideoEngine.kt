@@ -6,12 +6,14 @@ import androidx.media3.common.*
 import androidx.media3.common.util.Size
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.*
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.help.exoplayer.ExoPlayerHelper
 import io.legado.app.integration.video.NgVideoBridge
+import io.legado.app.integration.video.NgVideoDataSource
 import io.legado.app.model.VideoPlay
 import splitties.init.appCtx
 import java.io.File
@@ -60,9 +62,10 @@ internal class Media3VideoEngine {
         val client = okHttpClient.newBuilder().connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS).callTimeout(0, TimeUnit.SECONDS).build()
         val http = OkHttpDataSource.Factory(client).setDefaultRequestProperties(headers.orEmpty())
-        val upstream = if (cache) ResolvingDataSource.Factory(ExoPlayerHelper.cacheDataSourceFactory) {
+        val cached = ResolvingDataSource.Factory(ExoPlayerHelper.cacheDataSourceFactory) {
             it.withRequestHeaders(headers.orEmpty() + it.httpRequestHeaders)
-        } else http
+        }
+        val upstream = if (cache) DataSource.Factory { NgVideoDataSource(cached.createDataSource(), http.createDataSource()) } else http
         val sources = DefaultMediaSourceFactory(appCtx)
             .setDataSourceFactory(DefaultDataSource.Factory(appCtx, upstream))
             .setLiveTargetOffsetMs(5000)
@@ -109,7 +112,7 @@ internal class Media3VideoEngine {
         NgVideoBridge.enhance(created)
         NgVideoBridge.selectAudio(created, request)
         setDisplay(output, outputWidth, outputHeight)
-        created.setMediaSource(NgVideoBridge.source(appCtx, sources.createMediaSource(MediaItem.fromUri(url)), request), startPositionMs.coerceAtLeast(0))
+        created.setMediaSource(NgVideoBridge.source(appCtx, sources.createMediaSource(NgVideoBridge.mediaItem(url)), request), startPositionMs.coerceAtLeast(0))
         created.playWhenReady = playWhenReady
         created.prepare()
     }

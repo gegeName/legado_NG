@@ -20,6 +20,7 @@ import io.legado.app.data.entities.RssStar
 import io.legado.app.exception.ContentEmptyException
 import io.legado.app.help.CacheManager
 import io.legado.app.help.book.getDanmaku
+import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.update
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.help.video.VideoPlaybackBridge
@@ -35,11 +36,11 @@ import io.legado.app.utils.postEvent
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
-import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.CancellationException
 import splitties.init.appCtx
 import java.io.File
 
@@ -133,23 +134,19 @@ object VideoPlay : CoroutineScope by MainScope(){
         if (singleUrl) {
             val mUrl = videoUrl ?: return
             Coroutine.async(loadScope, IO) {
-                CacheManager.getLong(VIDEO_POS_NAME + mUrl)?.let {
-                    player.seekOnStart = it
-                }
-                inBookshelf = true
-                val analyzeUrl = AnalyzeUrl(
-                    mUrl,
-                    source = source,
-                    ruleData = book,
-                    chapter = null
-                )
-                withContext(Main) {
-                    player.mapHeadData = analyzeUrl.headerMap
-                    val url = analyzeUrl.url
-                    player.setUp(url, true, File(appCtx.externalCache, "exoplayer"), videoTitle)
-                    if (autoPlay) {
-                        player.startPlayLogic()
+                NgVideoBridge.analyzingRules {
+                    CacheManager.getLong(VIDEO_POS_NAME + mUrl)?.let {
+                        player.seekOnStart = it
                     }
+                    inBookshelf = true
+                    val analyzeUrl = AnalyzeUrl(
+                        NgVideoBridge.initialInput(mUrl),
+                        source = source,
+                        ruleData = book,
+                        chapter = null,
+                        coroutineContext = currentCoroutineContext()
+                    )
+                    NgVideoBridge.prepare(player, analyzeUrl, videoTitle, rawInput = mUrl)
                 }
             }.onError {
                 player.loadError("加载视频链接失败")
@@ -168,61 +165,53 @@ object VideoPlay : CoroutineScope by MainScope(){
             val ruleContent = s.ruleContent
             if (ruleContent.isNullOrBlank()) {
                 Coroutine.async(loadScope, IO) {
-                    val mUrl = rssArticle.link
-                    videoUrl = mUrl
-                    val analyzeUrl = AnalyzeUrl(
-                        mUrl,
-                        source = source,
-                        ruleData = rssArticle
-                    )
-                    withContext(Main) {
-                        player.mapHeadData = analyzeUrl.headerMap
-                        player.setUp(
-                            analyzeUrl.url,
-                            true,
-                            File(appCtx.externalCache, "exoplayer"),
-                            rssArticle.title
+                    NgVideoBridge.analyzingRules {
+                        val mUrl = rssArticle.link
+                        videoUrl = mUrl
+                        val analyzeUrl = AnalyzeUrl(
+                            NgVideoBridge.initialInput(mUrl),
+                            source = source,
+                            ruleData = rssArticle,
+                            coroutineContext = currentCoroutineContext()
                         )
-                        if (autoPlay) {
-                            player.startPlayLogic()
-                        }
+                        NgVideoBridge.prepare(player, analyzeUrl, rssArticle.title, rssArticle.link, rawInput = mUrl)
                     }
                 }.onError {
                     player.loadError("加载订阅源视频链接失败")
                     AppLog.put("加载订阅源视频链接失败", it, true)
                 }
             } else {
-                Rss.getContent(loadScope, rssArticle, ruleContent, s)
-                    .onSuccess(IO) { content ->
-                        val content = content.trim()
+                Coroutine.async(loadScope, IO) {
+                    NgVideoBridge.analyzingRules {
+                        val content = NgVideoBridge.ruleContent {
+                            Rss.getContentAwait(rssArticle, ruleContent, s)
+                        }.trim()
                         val mUrl = if (content.isEmpty()) {
                             throw ContentEmptyException("正文为空")
-                        } else if (content.startsWith("<")) { //当作mpd文本
+                        } else if (NgVideoBridge.isDash(content)) {
                             val name = MD5Utils.md5Encode(content) + ".mpd"
                             val file = FileUtils.createFileIfNotExist(videoTempFile,name)
                             file.writeText(content)
                             Uri.fromFile(file).toString()
+                        } else if (content.startsWith("<")) {
+                            content // HTML 交给视频解析器，不能当作 MPD 文件。
                         } else {
                             NetworkUtils.getAbsoluteURL(rssArticle.link, content)
                         }
                         videoUrl = mUrl
                         val analyzeUrl = AnalyzeUrl(
-                            mUrl,
+                            if (mUrl.startsWith("<")) rssArticle.link else NgVideoBridge.initialInput(mUrl),
                             source = source,
-                            ruleData = rssArticle
+                            ruleData = rssArticle,
+                            coroutineContext = currentCoroutineContext()
                         )
-                        val playUrl = analyzeUrl.url
-                        withContext(Main) {
-                            player.mapHeadData = analyzeUrl.headerMap
-                            player.setUp(playUrl, true, File(appCtx.externalCache, "exoplayer"), rssArticle.title)
-                            if (autoPlay) {
-                                player.startPlayLogic()
-                            }
-                        }
-                    }.onError {
-                        player.loadError("加载订阅源为链接的正文失败")
-                        AppLog.put("加载订阅源为链接的正文失败", it, true)
+                        NgVideoBridge.prepare(player, analyzeUrl, rssArticle.title, rssArticle.link,
+                            mUrl.takeIf { it.startsWith("<") }, mUrl.takeUnless { it.startsWith("<") } ?: analyzeUrl.url)
                     }
+                }.onError {
+                    player.loadError("加载订阅源为链接的正文失败")
+                    AppLog.put("加载订阅源为链接的正文失败", it, true)
+                }
             }
             return
         }
@@ -253,13 +242,23 @@ object VideoPlay : CoroutineScope by MainScope(){
             appCtx.toastOnUi("未找到章节")
             return
         }
-        WebBook.getContent(loadScope, source as BookSource, book, chapter)
-            .onSuccess(IO) { content ->
+        Coroutine.async(loadScope, IO) {
+            NgVideoBridge.analyzingRules {
+                val content = NgVideoBridge.ruleContent {
+                    val raw = BookHelp.getContent(book, chapter)?.takeIf { it.isNotBlank() } ?: try {
+                        WebBook.getContentAwait(source as BookSource, book, chapter)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        AppLog.put("视频播放：正文解析失败，回退章节地址\n${error.localizedMessage}", error)
+                        null
+                    }
+                    raw?.takeIf { it.isNotBlank() } ?: chapter.getAbsoluteURL().takeIf { !chapter.isVolume }.orEmpty()
+                }.trim()
                 val featureRequest = NgVideoBridge.resolve(player, chapter, source as BookSource, book)
-                val content = content.trim()
                 val mUrl = featureRequest?.url ?: if (content.isEmpty()) {
                     throw ContentEmptyException("正文为空")
-                } else if (content.startsWith("<")) { //当作mpd文本
+                } else if (NgVideoBridge.isDash(content)) {
                     val name = MD5Utils.md5Encode(content) + ".mpd"
                     val file = FileUtils.createFileIfNotExist(videoTempFile,name)
                     file.writeText(content)
@@ -269,27 +268,23 @@ object VideoPlay : CoroutineScope by MainScope(){
                 }
                 videoUrl = mUrl
                 val analyzeUrl = AnalyzeUrl(
-                    mUrl,
+                    if (mUrl.startsWith("<")) chapter.url else NgVideoBridge.initialInput(mUrl),
                     source = source,
                     ruleData = book,
-                    chapter = chapter
+                    chapter = chapter,
+                    coroutineContext = currentCoroutineContext()
                 )
                 when (val danmaku = chapter.getDanmaku()) {
                     is String -> danmakuStr = danmaku
                     is File -> danmakuFile = danmaku
                 }
-                val playUrl = analyzeUrl.url
-                withContext(Main) {
-                    player.mapHeadData = analyzeUrl.headerMap
-                    player.setUp(playUrl, true, File(appCtx.externalCache, "exoplayer"), chapter.title)
-                    if (autoPlay) {
-                        player.startPlayLogic()
-                    }
-                }
-            }.onError {
-                player.loadError("获取资源链接出错")
-                AppLog.put("获取资源链接出错\n$it", it, true)
+                NgVideoBridge.prepare(player, analyzeUrl, chapter.title, chapter.url,
+                    mUrl.takeIf { it.startsWith("<") }, mUrl.takeUnless { it.startsWith("<") } ?: analyzeUrl.url)
             }
+        }.onError {
+            player.loadError("获取资源链接出错")
+            AppLog.put("获取资源链接出错\n$it", it, true)
+        }
         isLoading = false
     }
 

@@ -11,6 +11,7 @@ import android.webkit.CookieManager
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -43,6 +44,8 @@ import okhttp3.Response
 import org.apache.commons.text.StringEscapeUtils
 import splitties.init.appCtx
 import java.lang.ref.WeakReference
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.regex.Pattern
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -70,23 +73,25 @@ class BackstageWebView(
     private var callback: Callback? = null
     private var pooledWebView: PooledWebView? = null
     private var resolvedSource: BaseSource? = source
+    private val resultHandled = AtomicBoolean()
 
     suspend fun getStrResponse(): StrResponse = withTimeout(timeout ?: 60000L) {
         suspendCancellableCoroutine { block ->
             block.invokeOnCancellation {
+                resultHandled.set(true)
                 runOnUI {
                     destroy()
                 }
             }
             callback = object : Callback() {
                 override fun onResult(response: StrResponse) {
-                    if (!block.isCompleted) {
+                    if (resultHandled.compareAndSet(false, true) && block.isActive) {
                         block.resume(response)
                     }
                 }
 
                 override fun onError(error: Throwable) {
-                    if (!block.isCompleted)
+                    if (resultHandled.compareAndSet(false, true) && block.isActive)
                         block.resumeWithException(error)
                 }
             }
@@ -94,11 +99,12 @@ class BackstageWebView(
                 delayTime = 900L
             }
             runOnUI {
+                if (!block.isActive) return@runOnUI
                 try {
                     load()
                 } catch (error: Throwable) {
                     destroy()
-                    block.resumeWithException(error)
+                    callback?.onError(error)
                 }
             }
         }
@@ -183,6 +189,7 @@ class BackstageWebView(
     }
 
     private fun destroy() {
+        mHandler.removeCallbacksAndMessages(null)
         pooledWebView?.let { WebViewPool.release(it) }
         pooledWebView = null
     }
@@ -330,6 +337,20 @@ class BackstageWebView(
 
     private inner class SnifferWebClient : WebViewClient() {
 
+        private val sourcePattern = sourceRegex?.takeIf(String::isNotBlank)?.let {
+            runCatching { Pattern.compile(it, Pattern.CASE_INSENSITIVE) }.getOrNull()
+        }
+        private val overridePattern = overrideUrlRegex?.takeIf(String::isNotBlank)?.let {
+            runCatching { Pattern.compile(it, Pattern.CASE_INSENSITIVE) }.getOrNull()
+        }
+
+        private fun capture(requestUrl: String, pattern: Pattern?): Boolean {
+            if (pattern?.matcher(requestUrl)?.matches() != true || resultHandled.get()) return false
+            callback?.onResult(StrResponse(url.orEmpty(), requestUrl))
+            runOnUI { pooledWebView?.realWebView?.stopLoading(); destroy() }
+            return true
+        }
+
         override fun shouldOverrideUrlLoading(
             view: WebView,
             request: WebResourceRequest
@@ -349,40 +370,29 @@ class BackstageWebView(
         }
 
         private fun shouldOverrideUrlLoading(requestUrl: String): Boolean {
-            overrideUrlRegex?.let {
-                if (requestUrl.matches(it.toRegex())) {
-                    try {
-                        val response = StrResponse(url!!, requestUrl)
-                        callback?.onResult(response)
-                    } catch (e: Exception) {
-                        callback?.onError(e)
-                    }
-                    destroy()
-                    return true
-                }
-            }
-            return false
+            return capture(requestUrl, overridePattern)
         }
 
         override fun onLoadResource(view: WebView, resUrl: String) {
-            sourceRegex?.let {
-                if (resUrl.matches(it.toRegex())) {
-                    try {
-                        val response = StrResponse(url!!, resUrl)
-                        callback?.onResult(response)
-                    } catch (e: Exception) {
-                        callback?.onError(e)
-                    }
-                    destroy()
-                }
-            }
+            capture(resUrl, sourcePattern)
+        }
+
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+            capture(request.url.toString(), sourcePattern)
+            return null
+        }
+
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+        override fun shouldInterceptRequest(view: WebView, url: String): WebResourceResponse? {
+            capture(url, sourcePattern)
+            return null
         }
 
         override fun onPageFinished(webView: WebView, url: String) {
             setCookie(url)
             if (!javaScript.isNullOrEmpty()) {
                 val runnable = LoadJsRunnable(webView, javaScript)
-                mHandler.postDelayed(runnable, 100L + delayTime)
+                mHandler.postDelayed(runnable, 1000L + delayTime)
             }
         }
 

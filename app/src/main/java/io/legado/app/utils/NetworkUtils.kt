@@ -159,7 +159,12 @@ object NetworkUtils {
      * 获取绝对地址
      */
     fun getAbsoluteURL(baseURL: String?, relativePath: String): String {
-        if (baseURL.isNullOrEmpty()) return relativePath.trim()
+        val relativePathTrim = relativePath.trim()
+        if (baseURL.isNullOrEmpty()) return relativePathTrim
+        // Absolute targets do not need a base. Data URIs are opaque rule payloads,
+        // and java.net.URL cannot use them as a base for relative paths.
+        if (relativePathTrim.isAbsUrl() || relativePathTrim.isDataUrl()) return relativePathTrim
+        if (baseURL.trim().startsWith("data:", ignoreCase = true)) return relativePathTrim
         var absoluteUrl: URL? = null
         try {
             absoluteUrl = URL(baseURL.substringBefore(","))

@@ -241,7 +241,10 @@ class AnalyzeUrl(
             baseUrl = it
         }
         if (urlNoOption.length != ruleUrl.length) {
-            val urlOptionStr = ruleUrl.substring(urlMatcher.end())
+            var urlOptionStr = ruleUrl.substring(urlMatcher.end())
+            if (urlOptionStr.startsWith("%7B", true) || urlOptionStr.contains("%22") || urlOptionStr.contains("%7b")) {
+                urlOptionStr = runCatching { java.net.URLDecoder.decode(urlOptionStr, "UTF-8") }.getOrDefault(urlOptionStr)
+            }
             var urlOption = GSONStrict.fromJsonObject<UrlOption>(urlOptionStr).getOrNull()
             if (urlOption == null) {
                 urlOption = GSON.fromJsonObject<UrlOption>(urlOptionStr).getOrNull()
@@ -729,10 +732,22 @@ class AnalyzeUrl(
         }
     }
 
-    /**
-     * 设置cookie 优先级
-     * urlOption临时cookie > 数据库cookie
-     */
+    /** Prepare a snapshot for native playback and WebView inspection using the source cookie scope. */
+    fun getRequestHeaders(): Map<String, String> {
+        setCookie()
+        return headerMap.toMap()
+    }
+
+    fun videoWebScript(): String? = webJs
+    fun videoWebDelay(): Long = webViewDelayTime
+    fun videoRuleInput(): String = mUrl
+
+    /** Keep chapter variables and crypto/JS bindings when a rule redirects to a player page. */
+    fun forVideoUrl(target: String, headers: Map<String, String>): AnalyzeUrl = AnalyzeUrl(
+        target, baseUrl = baseUrl, source = source, ruleData = ruleData, chapter = chapter,
+        coroutineContext = coroutineContext, headerMapF = headers)
+
+    /** 设置 Cookie，优先级为 urlOption 临时 Cookie > 数据库 Cookie。 */
     private fun setCookie() {
         val cookie = kotlin.run {
             /* 每次调用getXX cookieJar已经保存过了
@@ -787,7 +802,7 @@ class AnalyzeUrl(
     }
 
     companion object {
-        val paramPattern: Pattern = Pattern.compile("\\s*,\\s*(?=\\{)")
+        val paramPattern: Pattern = Pattern.compile("\\s*,\\s*(?=\\{|%7[Bb])")
         private val pagePattern = Pattern.compile("<(.*?)>")
         private val queryEncoder =
             RFC3986.UNRESERVED.orNew(PercentCodec.of("!$%&()*+,/:;=?@[\\]^`{|}"))

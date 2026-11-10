@@ -7,8 +7,18 @@ import io.legado.app.help.video.VideoPlaybackBridge
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.model.VideoPlay
 import io.legado.app.utils.GSON
+import io.legado.app.utils.externalCache
 import io.legado.features.adapter.VideoFeatures
 import io.legado.features.adapter.Media3Features
+import io.legado.features.adapter.WebVideoFeatures
+import io.legado.features.adapter.VideoRuleFeatures
+import kotlinx.coroutines.CancellationException
+import io.legado.app.utils.NetworkUtils
+import io.legado.app.model.analyzeRule.AnalyzeUrl
+import io.legado.app.help.config.AppConfig
+import io.legado.app.constant.AppLog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import io.legado.features.api.source.VideoResource
 import io.legado.features.api.video.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,6 +75,50 @@ object NgVideoBridge {
             request
         }
     }
+    /** Every NG video entry resolves web pages before they reach the native player. */
+    suspend fun <T> analyzingRules(block: suspend () -> T): T = VideoRuleFeatures.analyze(block)
+
+    suspend fun ruleContent(block: suspend () -> String): String {
+        val content = try { block() } catch (error: CancellationException) { throw error }
+            catch (error: Exception) {
+                if (VideoRuleFeatures.captured() == null) throw error
+                AppLog.put("视频规则已提供播放网页，继续后台解析：${error.localizedMessage}")
+                ""
+            }
+        return content.takeIf { it.isNotBlank() }?.let { WebVideoFeatures.filterContent(it) { message -> AppLog.put(message) } }
+            ?: VideoRuleFeatures.captured()?.url.orEmpty()
+    }
+
+    suspend fun prepare(target: VideoPlaybackTarget, analyze: AnalyzeUrl, title: String?, baseUrl: String = analyze.url,
+        inlineHtml: String? = null, rawInput: String = analyze.url) {
+        val guarded = target as? Guarded ?: return
+        if (!features.current(guarded.revision)) throw kotlinx.coroutines.CancellationException("视频解析会话已失效")
+        val source = analyze.getSource()
+        val headers = features.headers(mapOf("User-Agent" to AppConfig.userAgent),
+            features.headers(analyze.getRequestHeaders(), guarded.request?.headers.orEmpty()))
+        val captured = VideoRuleFeatures.captured()
+        val documentBase = listOf(baseUrl, source?.getKey().orEmpty()).firstOrNull(WebVideoFeatures::isNetwork)
+            ?: baseUrl
+        val capturedUrl = captured?.url?.let { NetworkUtils.getAbsoluteURL(documentBase, it) }
+        val pageUrl = capturedUrl?.takeIf(String::isNotBlank) ?: rawInput
+        val inlineDocument = captured?.html?.takeIf { pageUrl == capturedUrl } ?: inlineHtml
+        val resolved = NgLegadoVideoResolver.resolve(analyze, pageUrl, documentBase, inlineDocument, headers)
+        withContext(Dispatchers.Main) {
+            synchronized(this@NgVideoBridge) {
+                if (!features.current(guarded.revision)) throw kotlinx.coroutines.CancellationException("视频解析会话已失效")
+                guarded.request = guarded.request?.copy(url = resolved.url, headers = resolved.headers)
+                target.mapHeadData = resolved.headers
+                target.setUp(resolved.url, true, File(appCtx.externalCache, "exoplayer"), title)
+                AppLog.put("视频播放：已解析媒体地址，交由应用播放器播放")
+                if (VideoPlay.autoPlay) target.startPlayLogic()
+            }
+        }
+    }
+    fun isDash(text: String) = WebVideoFeatures.isDash(text)
+    fun initialInput(input: String): String = WebVideoFeatures.pluginSource(input)?.url ?: WebVideoFeatures.legacySource(
+        WebVideoFeatures.candidates(input).firstOrNull().orEmpty()).url
+    fun mediaItem(url: String): androidx.media3.common.MediaItem = androidx.media3.common.MediaItem.Builder()
+        .setUri(url).apply { WebVideoFeatures.mimeType(url)?.let(::setMimeType) }.build()
     fun selectQuality(title: String) {
         val position = VideoPlaybackBridge.state.value.position
         features.select(features.selected().lineId, title, position)

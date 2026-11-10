@@ -9,6 +9,7 @@ import io.legado.app.ui.association.VerificationCodeActivity
 import io.legado.app.ui.browser.WebViewActivity
 import io.legado.app.utils.isMainThread
 import io.legado.app.utils.startActivity
+import io.legado.features.adapter.VideoRuleFeatures
 import splitties.init.appCtx
 import java.util.concurrent.locks.LockSupport
 import kotlin.time.Duration.Companion.minutes
@@ -38,6 +39,7 @@ object SourceVerificationHelp {
         refetchAfterSuccess: Boolean = true,
         html: String? = null
     ): Pair<String, String> {
+        if (useBrowser && VideoRuleFeatures.capture(url, html)) return url to (html ?: url)
         source
             ?: throw NoStackTraceException("getVerificationResult parameter source cannot be null")
         require(url.length < 64 * 1024) { "getVerificationResult parameter url too long" }
@@ -97,6 +99,7 @@ object SourceVerificationHelp {
         refetchAfterSuccess: Boolean? = true,
         html: String? = null
     ) {
+        if (VideoRuleFeatures.capture(url, html)) return
         source ?: throw NoStackTraceException("startBrowser parameter source cannot be null")
         require(url.length < 64 * 1024) { "startBrowser parameter url too long" }
         appCtx.startActivity<WebViewActivity> {

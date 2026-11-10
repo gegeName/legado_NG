@@ -16,6 +16,7 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.integration.rule.NgYiciyuanBridge
 import io.legado.app.integration.FeatureBootstrap
+import io.legado.features.adapter.VideoRuleFeatures
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.http.BackstageWebView
 import io.legado.app.help.http.BookSourceCookieStore
@@ -384,6 +385,7 @@ interface JsExtensions : JsEncodeUtils {
     @JavascriptInterface
     fun openVideoPlayer(url: String, title: String, isFloat: Boolean) {
         rhinoContext.ensureActive()
+        if (VideoRuleFeatures.capture(url)) return
         if (
             blockSourceInteraction(
                 SourceInteractionRequest(
@@ -408,6 +410,7 @@ interface JsExtensions : JsEncodeUtils {
 
     fun startBrowser(url: String, title: String, html: String?) {
         rhinoContext.ensureActive()
+        if (VideoRuleFeatures.capture(url, html)) return
         if (
             blockSourceInteraction(
                 SourceInteractionRequest(
@@ -434,6 +437,7 @@ interface JsExtensions : JsEncodeUtils {
 
     fun startBrowserAwait(url: String, title: String, refetchAfterSuccess: Boolean, html: String?): StrResponse {
         rhinoContext.ensureActive()
+        if (VideoRuleFeatures.capture(url, html)) return StrResponse(url, url)
         blockSourceInteraction(
             request = SourceInteractionRequest(
                 kind = SourceInteractionKind.BROWSER_VERIFICATION,
@@ -1421,6 +1425,8 @@ interface JsExtensions : JsEncodeUtils {
     fun openUrl(url: String, mimeType: String? = null) {
         require(url.length < 64 * 1024) { "openUrl parameter url too long" }
         rhinoContextOrNull?.ensureActive()
+        if ((url.startsWith("http://", true) || url.startsWith("https://", true)) &&
+            VideoRuleFeatures.capture(url)) return
         if (url.startsWith("legado://") || url.startsWith("yuedu://")) {
             appCtx.startActivity<OnLineImportActivity> {
                 data = url.toUri()

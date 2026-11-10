@@ -14,8 +14,11 @@
 | `app/src/main/java/io/legado/app/ui/association/BookSourceImportReader.kt` | 文件/URL/文本逐条转换；普通 JSON 保留原导入与预览/保存流程 | 导入回归 |
 | `app/src/main/java/io/legado/app/ui/book/source/edit/BookSourceEditViewModel.kt` | 编辑导入经同一转换入口 | 普通 JSON / 异次元 |
 | `app/src/main/java/io/legado/app/model/analyzeRule/AnalyzeRule.kt` | 标记源的内容/规则/结果兼容；默认策略原值；getStringSafe 保留取消 | 规则与取消 |
-| `app/src/main/java/io/legado/app/model/analyzeRule/AnalyzeUrl.kt` | 标记源显式 webJs 时交给已有 WebView | 普通 HTTP 默认不变 |
-| `app/src/main/java/io/legado/app/help/JsExtensions.kt` | fetch/aJax/match/get 委托，网络仍走 NG 源作用域 | HTTP 状态与取消 |
+| `app/src/main/java/io/legado/app/model/analyzeRule/AnalyzeUrl.kt` | 标记源显式 webJs 时交给已有 WebView；视频解析读取请求头/脚本/延迟，重定向保留规则上下文，兼容百分号编码 URL 选项 | 编码选项/源签名上下文 |
+| `app/src/main/java/io/legado/app/help/http/BackstageWebView.kt` | 按来源实现增加资源请求拦截及大小写无关匹配，原规则脚本/延迟/HTML 回退继续复用；单次完成与取消清理 | 视频嗅探/正常规则网页 |
+| `app/src/main/java/io/legado/app/help/JsExtensions.kt` | fetch/aJax/match/get 委托，网络仍走 NG 源作用域；视频解析期间捕获 startBrowser/Await、openUrl 和嵌套播放器请求 | HTTP 状态与取消/视频跳转拦截 |
+| `app/src/main/java/io/legado/app/help/source/SourceVerificationHelp.kt` | 视频规则解析期间将浏览器请求交给当前解析会话，避免显示网页或等待前台验证页 | 规则跳转/正常验证隔离 |
+| `app/src/main/java/io/legado/app/ui/login/SourceLoginJsExtensions.kt` | 视频规则内 showBrowser 记录播放网页，其他调用沿用原对话框 | 视频规则/正常网页隔离 |
 | `app/src/main/java/io/legado/app/help/JsEncodeUtils.kt` | ES/AES 解密委托 | 字节/流/Base64/hex |
 | `app/src/main/java/io/legado/app/model/webBook/BookList.kt` | 空列表、书籍地址修复委托 | 空响应/非法 URL |
 | `app/src/main/java/io/legado/app/model/webBook/BookChapterList.kt` | 目录 URL 规则/结果委托 | 目录规则 |
@@ -35,8 +38,8 @@
 
 | 视频宿主文件 | 职责与默认行为 | 回归 |
 | --- | --- | --- |
-| `app/src/main/java/io/legado/app/model/VideoPlay.kt` | 每次解析捕获会话版本，读取中立多清晰度结果并保留 NG 进度/跳集所有权 | 迟到回调/清晰度位置恢复 |
-| `app/src/main/java/io/legado/app/help/video/Media3VideoEngine.kt` | 委托模块合并字幕/外部音轨与画面效果；应用直接管理单一 Media3 ExoPlayer | 普通源/请求头/原画 |
+| `app/src/main/java/io/legado/app/model/VideoPlay.kt` | 每次解析捕获会话版本；单链接、订阅、选集在独立规则拦截上下文中解析；网页统一后台嗅探；仅 DASH 正文写入 MPD 文件 | 迟到回调/清晰度位置恢复/规则禁止网页跳转 |
+| `app/src/main/java/io/legado/app/help/video/Media3VideoEngine.kt` | 委托模块合并字幕/外部音轨与画面效果；显式媒体 MIME，流/分片/密钥绕过磁盘缓存；应用直接管理单一 Media3 ExoPlayer | data HLS/请求头/密钥/原画 |
 | `app/src/main/java/io/legado/app/ui/video/VideoSettings.kt` | NG 设置入口委托清晰度和效果组件 | NG 主题/设置 |
 | `app/src/main/java/io/legado/app/ui/video/VideoPlayerScreen.kt` | 当前播放实例字幕输出表面，跟随窗口大小 | 字幕/全屏 |
 
@@ -58,6 +61,7 @@
 | `app/src/main/java/io/legado/app/help/glide/OkHttpModelLoader.kt` | 有书籍请求快照时使用共享原图 fetcher；普通封面仍用原 fetcher | 缓存/配置版本 |
 | `app/src/main/java/io/legado/app/model/ReadManga.kt` | 重置/退出使资源会话失效，目录重排等待原图任务退出 | 迟到发布/重排屏障 |
 | `app/src/main/java/io/legado/app/ui/book/manga/MangaImages.kt` | 视口候选委托模块，24 张预算；尺寸只读规范缓存并持有租约 | 零网络预取/反向取消 |
+| `app/src/main/java/io/legado/app/ui/book/manga/MangaFlipController.kt` | 连续阅读翻章状态调用模块跨章策略，原始页映射和手势门控由宿主管理 | 跨章等待/手势门控 |
 | `app/src/main/java/io/legado/app/ui/book/manga/MangaPagedImages.kt` | 模块双页布局映射、原始跳页到显示槽、双图独立加载/翻译 | 原始页码/RTL/翻页版本 |
 | `app/src/main/java/io/legado/app/ui/book/manga/MangaReaderState.kt` | 独立漫画章节/原图设置映射 | 一次迁移、设置隔离 |
 | `app/src/main/java/io/legado/app/ui/book/manga/ReadMangaActivity.kt` | 设置动作写入模块配置并更新预取窗口 | 设置映射 |

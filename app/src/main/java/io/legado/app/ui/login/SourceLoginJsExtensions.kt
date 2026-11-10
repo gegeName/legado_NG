@@ -9,6 +9,7 @@ import io.legado.app.utils.postEvent
 import io.legado.app.utils.sendToClip
 import io.legado.app.utils.showDialogFragment
 import java.lang.ref.WeakReference
+import io.legado.features.adapter.VideoRuleFeatures
 
 @Suppress("unused")
 class SourceLoginJsExtensions(
@@ -54,6 +55,7 @@ class SourceLoginJsExtensions(
 
     @JvmOverloads
     fun showBrowser(url: String, html: String? = null, preloadJs: String? = null, config: String? = null) {
+        if (VideoRuleFeatures.capture(url, html)) return
         val activity = activityRef.get() ?: return
         val source = getSource() ?: return
         activity.showDialogFragment(
