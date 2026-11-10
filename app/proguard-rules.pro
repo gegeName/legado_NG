@@ -157,6 +157,26 @@ cn.hutool.core.util.**{*;}
 -keep class com.tianscar.soundtouch.** { *; }
 #-keep class com.shuyu.alipay.** {*;}
 #-keep interface com.shuyu.alipay.**
+# Keep JavascriptInterface annotated methods in WebViews
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# 视频优化功能 (Video Optimization)
+-keep class io.legado.app.help.video.** { *; }
+-keep class io.legado.app.integration.video.** { *; }
+-keep class io.legado.app.ui.video.VideoPlayerActivity { public *; }
+-keep class io.legado.features.video.** { *; }
+-keep class io.legado.features.media3.** { *; }
+-keep class io.legado.features.api.video.** { *; }
+-keep class io.legado.features.adapter.VideoFeatures { *; }
+-keep class io.legado.features.adapter.VideoRuleFeatures { *; }
+-keep class io.legado.features.adapter.WebVideoFeatures { *; }
+-keep class io.legado.features.adapter.Media3Features { *; }
+-keepclassmembers class io.legado.app.model.VideoPlay {
+    public static *;
+}
+
 -keep public class * extends android.view.View{
     *** get*();
     void set*(***);

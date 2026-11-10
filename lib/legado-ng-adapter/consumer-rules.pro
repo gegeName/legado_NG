@@ -6,3 +6,4 @@
 -keep class io.legado.features.api.source.MediaTrack { *; }
 -keep class io.legado.features.api.host.FeatureBackupEntry { *; }
 -keep class io.legado.features.api.host.PortablePreference { *; }
+-keep class io.legado.features.api.video.** { *; }
