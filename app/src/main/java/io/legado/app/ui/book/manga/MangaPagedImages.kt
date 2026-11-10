@@ -47,6 +47,8 @@ import io.legado.app.integration.manga.NgMangaSpread
 import io.legado.app.integration.manga.NgMangaSpreadImage
 import io.legado.app.ui.book.manga.config.MangaReadingStyle
 import io.legado.app.ui.book.manga.entities.BaseMangaPage
+import io.legado.app.ui.book.manga.entities.EpaperTransformation
+import io.legado.app.ui.book.manga.entities.GrayscaleTransformation
 import io.legado.app.ui.book.manga.entities.MangaPage
 import io.legado.app.ui.book.manga.entities.ReaderLoading
 import io.legado.app.ui.book.read.page.PageCoverRenderer
@@ -92,6 +94,13 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
     val targetLayer = rememberGraphicsLayer()
     val currentRecord = remember { RecordedMangaPage() }
     val targetRecord = remember { RecordedMangaPage() }
+    val imageTransformation = remember(ui.colorMode, ui.threshold) {
+        when (ui.colorMode) {
+            MangaColorMode.INK -> EpaperTransformation(ui.threshold)
+            MangaColorMode.GRAY -> GrayscaleTransformation()
+            else -> null
+        }
+    }
     val preloader = remember(context, ui.bookUrl, ui.sourceOrigin) {
         MangaImagePreloader(context, sourceOrigin = ui.sourceOrigin)
     }
@@ -125,11 +134,14 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
                 page?.let { latestPage(NgMangaLayout.progress(it, ui.currentPage)) }
             }
         }
-        LaunchedEffect(ui.active, displayPages, ui.preload) {
+        LaunchedEffect(ui.active, displayPages, ui.preload, imageTransformation) {
             if (!ui.active) { preloader.clear(); return@LaunchedEffect }
             var previous = position
             snapshotFlow { position }.collect { index ->
-                preloader.update(displayPages, index, ui.preload, index >= previous)
+                preloader.update(
+                    displayPages, index, ui.preload, index >= previous,
+                    transformation = imageTransformation,
+                )
                 previous = index
             }
         }

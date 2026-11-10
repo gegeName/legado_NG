@@ -231,25 +231,30 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
         MangaScrollDiagnostics.event("ACTIVE") {
             "candidate=${mangaPageKey(page)} current=${ReadManga.durChapterIndex}:${ReadManga.durChapterPos}"
         }
-        when {
-            page.chapterIndex > ReadManga.durChapterIndex -> ReadManga.moveToNextChapter(preservePosition = true)
-            page.chapterIndex < ReadManga.durChapterIndex -> ReadManga.moveToPrevChapter(preservePosition = true)
-            page is MangaPage -> {
-                val visibleKey = "${ui.bookUrl}:${mangaPageKey(page)}"
-                ReadManga.durChapterPos = page.index
-                if (lastVisiblePageKey != visibleKey) {
-                    lastVisiblePageKey = visibleKey
-                    ReadManga.curPageChanged()
+        val current = page as? MangaPage ?: return
+        if (current.chapterIndex != ReadManga.durChapterIndex) {
+            if (ui.paged) {
+                if (current.chapterIndex > ReadManga.durChapterIndex) {
+                    ReadManga.moveToNextChapter(preservePosition = true)
+                } else {
+                    ReadManga.moveToPrevChapter(preservePosition = true)
                 }
-                ui.currentPage = page
-                ui.chapterName = page.mChapterName
-                ui.chapterIndex = page.chapterIndex
-                ui.imageIndex = page.index
-                ui.imageCount = page.imageCount
-                ui.chapterCount = page.chapterSize
-                ui.chapterUrl = ReadManga.curMangaChapter?.chapter?.getAbsoluteURL().orEmpty()
             }
+            return
         }
+        val visibleKey = "${ui.bookUrl}:${mangaPageKey(current)}"
+        ReadManga.durChapterPos = current.index
+        if (lastVisiblePageKey != visibleKey) {
+            lastVisiblePageKey = visibleKey
+            ReadManga.curPageChanged()
+        }
+        ui.currentPage = current
+        ui.chapterName = current.mChapterName
+        ui.chapterIndex = current.chapterIndex
+        ui.imageIndex = current.index
+        ui.imageCount = current.imageCount
+        ui.chapterCount = current.chapterSize
+        ui.chapterUrl = ReadManga.curMangaChapter?.chapter?.getAbsoluteURL().orEmpty()
     }
     fun skipToPage(index: Int) {
         val position = ui.pages.binarySearch {

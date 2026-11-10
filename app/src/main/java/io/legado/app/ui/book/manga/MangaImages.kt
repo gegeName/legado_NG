@@ -129,12 +129,32 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val latestPage by rememberUpdatedState(onPage)
+    val flipController = remember(ui, list) {
+        MangaFlipController(
+            isLoading = { ui.loading },
+            currentChapter = { ReadManga.durChapterIndex },
+            currentPage = { ui.currentPage },
+            moveChapter = { direction ->
+                if (direction > 0) ReadManga.moveToNextChapter(preservePosition = true)
+                else ReadManga.moveToPrevChapter(preservePosition = true)
+            },
+            updatePage = { latestPage(it) },
+            preloadNextChapter = ReadManga::preloadNextChapter,
+        )
+    }
     val latestMenu by rememberUpdatedState(onMenu)
     var pan by remember { mutableStateOf(Offset.Zero) }
     var pendingJump by remember { mutableStateOf(ui.jumpRevision > 0) }
     var appliedJump by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val imageRatios = remember(ui.bookUrl, ui.sourceOrigin) { MangaImageRatioCache() }
+    val imageTransformation = remember(ui.colorMode, ui.threshold) {
+        when (ui.colorMode) {
+            MangaColorMode.INK -> EpaperTransformation(ui.threshold)
+            MangaColorMode.GRAY -> GrayscaleTransformation()
+            else -> null
+        }
+    }
     val preloader = remember(context, ui.bookUrl, ui.sourceOrigin) {
         MangaImagePreloader(context, imageRatios, scope, ui.sourceOrigin)
     }
@@ -174,6 +194,10 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                     ui.pages.getOrNull(ui.jumpIndex)?.let(latestPage)
                 } finally { if (ui.jumpRevision == revision) { appliedJump = revision; pendingJump = false } }
             }
+        }
+        LaunchedEffect(ui.chapterIndex, ui.loading, ui.tailRetry, ui.error) {
+            if (ui.tailRetry || ui.error != null) flipController.onLoadFail()
+            else flipController.onContentReady(ui.chapterIndex, ui.loading)
         }
         suspend fun turn(direction: Int) {
             val distance = (if (ui.horizontal) width else height / ui.scale.coerceAtMost(1f)) * direction
@@ -232,19 +256,12 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                                     ui.chapterIndex, candidate.chapterIndex, false,
                                 )
                         }
-                    centered to boundary
+                    Triple(centered, boundary, currentVisible)
                 }
             }.distinctUntilChanged().collect { item ->
-                item?.let { (centered, boundary) ->
-                    boundary?.let { latestPage(NgMangaLayout.progress(it, ui.currentPage)) }
-                    when {
-                        centered == null -> Unit
-                        centered.chapterIndex == ui.chapterIndex -> latestPage(centered)
-                        io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(
-                            ui.chapterIndex, centered.chapterIndex, false,
-                        ) -> latestPage(NgMangaLayout.progress(centered, ui.currentPage))
-                        else -> Unit
-                    }
+                item?.let { (centered, boundary, currentVisible) ->
+                    boundary?.let { flipController.onVisiblePage(it, currentChapterVisible = false) }
+                    flipController.onVisiblePage(centered, currentChapterVisible = currentVisible)
                 }
             }
         }
@@ -258,14 +275,33 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                         visible.offset + visible.size >= info.viewportEndOffset - threshold
                 }
             }.distinctUntilChanged().collect { nearChapterEnd ->
-                if (nearChapterEnd) ReadManga.preloadNextChapter()
+                flipController.onScroll(0, nearChapterEnd)
             }
         }
-        LaunchedEffect(displayPages, ui.preload, ui.active) {
+        LaunchedEffect(list, displayPages, ui.horizontal, ui.rtl) {
+            var previous = list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset
+            snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }
+                .distinctUntilChanged()
+                .collect { position ->
+                    val direction = when {
+                        position.first > previous.first -> 1
+                        position.first < previous.first -> -1
+                        position.second > previous.second -> 1
+                        position.second < previous.second -> -1
+                        else -> 0
+                    }
+                    flipController.onScroll(direction, nearChapterEnd = false)
+                    previous = position
+                }
+        }
+        LaunchedEffect(displayPages, ui.preload, ui.active, imageTransformation) {
             if (!ui.active) { preloader.clear(); return@LaunchedEffect }
             var previous = list.firstVisibleItemIndex
             snapshotFlow { list.firstVisibleItemIndex }.distinctUntilChanged().collect { position ->
-                preloader.update(displayPages, position, ui.preload, position >= previous)
+                preloader.update(
+                    displayPages, position, ui.preload, position >= previous,
+                    transformation = imageTransformation,
+                )
                 previous = position
             }
         }
@@ -317,6 +353,34 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                         }
                     }
                 } else null)
+            }
+            .pointerInput(ui.horizontal, ui.rtl, ui.loading, ui.scale, displayPages, ui.chapterIndex, flipController) {
+                if (ui.loading) return@pointerInput
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    var total = Offset.Zero
+                    var triggered = false
+                    try {
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            total += event.calculatePan()
+                            triggered = flipController.onTouchDrag(
+                                total = total,
+                                touchSlop = viewConfiguration.touchSlop,
+                                horizontal = ui.horizontal,
+                                rtl = ui.rtl,
+                                scale = ui.scale,
+                                list = list,
+                                pages = displayPages,
+                                chapterIndex = ui.chapterIndex,
+                                pointerCount = event.changes.count { it.pressed },
+                            ) || triggered
+                            if (triggered) event.changes.forEach { it.consume() }
+                        } while (event.changes.any { it.pressed })
+                    } finally {
+                        flipController.onTouchEnd()
+                    }
+                }
             }
             .pointerInput(ui.scaleEnabled, ui.horizontal, ui.rtl, ui.loading, list, scaleDetector) {
                 if (!ui.scaleEnabled || ui.loading) return@pointerInput
@@ -543,7 +607,15 @@ internal class MangaImagePreloader(
 ) {
     private val targets = linkedMapOf<String, Target<File?>>()
     private val metadataTargets = linkedMapOf<String, Target<File?>>()
-    fun update(pages: List<BaseMangaPage>, position: Int, count: Int, forward: Boolean) {
+    private val decodedTargets = linkedMapOf<String, Target<Drawable>>()
+    private var decodedTransformationKey: String? = null
+    fun update(
+        pages: List<BaseMangaPage>,
+        position: Int,
+        count: Int,
+        forward: Boolean,
+        transformation: Transformation<Bitmap>? = null,
+    ) {
         val plan = NgMangaReaderBridge.prefetch(pages, position, forward, if (ReadManga.book?.isPdf == true) 0 else count)
         // 只读取相邻已缓存文件的尺寸，不额外下载反方向图片。
         if (imageRatios != null) {
@@ -568,6 +640,34 @@ internal class MangaImagePreloader(
         }
         for (url in networkUrls) if (url !in targets) {
             targets[url] = request(url).preload()
+        }
+
+        // Decode only the imminent images so a fast fling can reuse Glide's memory resource.
+        val transformKey = transformation?.key()
+        if (decodedTransformationKey != transformKey) {
+            decodedTargets.values.forEach { Glide.with(context).clear(it) }
+            decodedTargets.clear()
+            decodedTransformationKey = transformKey
+        }
+        val decodeUrls = if (ReadManga.book?.isPdf == true) emptySet()
+            else plan.network.take(DECODE_AHEAD_COUNT).map { it.resource }.toSet()
+        val retainedDecodeUrls = retainedUrls.intersect(decodeUrls + pages.getOrNull(position)
+            ?.let(NgMangaLayout::realPages).orEmpty().map { it.mImageUrl })
+        val decodedIterator = decodedTargets.iterator()
+        while (decodedIterator.hasNext()) {
+            val entry = decodedIterator.next()
+            if (entry.key !in retainedDecodeUrls) {
+                Glide.with(context).clear(entry.value)
+                decodedIterator.remove()
+            }
+        }
+        for (url in decodeUrls) {
+            if (url !in decodedTargets) {
+                decodedTargets[url] = BookCover.loadManga(
+                    context, url, sourceOrigin = sourceOrigin ?: ReadManga.book?.origin,
+                    transformation = transformation,
+                ).priority(com.bumptech.glide.Priority.LOW).preload()
+            }
         }
     }
     private fun request(url: String): RequestBuilder<File?> {
@@ -594,7 +694,12 @@ internal class MangaImagePreloader(
         })
     }
     fun clear() {
-        (targets.values + metadataTargets.values).forEach { Glide.with(context).clear(it) }
-        targets.clear(); metadataTargets.clear()
+        (targets.values + metadataTargets.values + decodedTargets.values).forEach { Glide.with(context).clear(it) }
+        targets.clear(); metadataTargets.clear(); decodedTargets.clear()
+        decodedTransformationKey = null
     }
+
+    private fun Transformation<Bitmap>.key(): String = "${javaClass.name}:${hashCode()}"
+
+    private companion object { const val DECODE_AHEAD_COUNT = 2 }
 }
