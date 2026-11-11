@@ -69,6 +69,7 @@ import io.legado.app.integration.manga.NgMangaPdfBridge
 import io.legado.app.integration.manga.rememberNgPdfPreview
 import io.legado.features.api.manga.TranslationPageStatus
 import io.legado.features.api.manga.DisplayItem
+import io.legado.features.adapter.MangaReaderFeatures
 import io.legado.app.integration.image.NgOriginalImageResources
 import io.legado.features.api.host.ResourcePriority
 import io.legado.app.ui.book.manga.entities.BaseMangaPage
@@ -139,6 +140,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
         MangaFlipController(
             isLoading = { ui.loading },
             currentChapter = { ReadManga.durChapterIndex },
+            renderedChapter = { ui.chapterIndex },
             currentPage = { ui.currentPage },
             moveChapter = { direction ->
                 if (direction > 0) ReadManga.moveToNextChapter(preservePosition = true)
@@ -165,6 +167,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
         MangaImagePreloader(context, imageRatios, scope, ui.sourceOrigin)
     }
     DisposableEffect(preloader) { onDispose { preloader.clear() } }
+    LaunchedEffect(ui.bookUrl, ui.sourceOrigin, ui.jumpRevision) { flipController.reset() }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val width = constraints.maxWidth.toFloat()
@@ -203,7 +206,6 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
         }
         LaunchedEffect(ui.chapterIndex, ui.loading, ui.tailRetry, ui.error) {
             if (ui.tailRetry || ui.error != null) flipController.onLoadFail()
-            else flipController.onContentReady(ui.chapterIndex, ui.loading)
         }
         suspend fun turn(direction: Int) {
             val distance = (if (ui.horizontal) width else height / ui.scale.coerceAtMost(1f)) * direction
@@ -242,31 +244,28 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                 val center = if (ui.horizontal) width / 2 - pan.x / ui.scale
                     else (height / 2 - pan.y) / ui.scale
                 val info = list.layoutInfo
-                if (pendingJump || appliedJump != ui.jumpRevision) null else {
-                    val currentVisible = info.visibleItemsInfo.any { visible ->
-                        displayPages.getOrNull(visible.index)?.chapterIndex == ui.chapterIndex &&
-                            visible.offset < info.viewportEndOffset && visible.offset + visible.size > info.viewportStartOffset
+                val layoutMatches = info.totalItemsCount == displayPages.size + 1 &&
+                    info.visibleItemsInfo.all { visible ->
+                        if (visible.index == displayPages.size) visible.key == mangaTailKey(displayPages)
+                        else NgMangaLayout.measuredPage(displayPages, visible.index, visible.key) != null
                     }
-                    val centered = info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - center) }
-                        ?.let { displayPages.getOrNull(it.index) }
-                        ?.takeIf { it.chapterIndex == ui.chapterIndex ||
-                            io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(
-                                ui.chapterIndex, it.chapterIndex, currentVisible,
-                            ) }
-                    val boundary = info.visibleItemsInfo.asSequence()
-                        .filter { it.offset < info.viewportEndOffset && it.offset + it.size > info.viewportStartOffset }
-                        .mapNotNull { displayPages.getOrNull(it.index) }
-                        .firstOrNull { candidate ->
-                            candidate.chapterIndex == ui.chapterIndex + 1 &&
-                                io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(
-                                    ui.chapterIndex, candidate.chapterIndex, false,
-                                )
+                if (pendingJump || appliedJump != ui.jumpRevision || !layoutMatches) null else {
+                    val measured = info.visibleItemsInfo.mapNotNull { visible ->
+                        NgMangaLayout.measuredPage(displayPages, visible.index, visible.key)?.let { page ->
+                            MangaReaderFeatures.VisibleItem(mangaPageKey(page), page.chapterIndex, visible.offset, visible.size)
                         }
-                    Triple(centered, boundary, currentVisible)
+                    }
+                    val key = MangaReaderFeatures.visiblePage(ui.chapterIndex, measured,
+                        info.viewportStartOffset, info.viewportEndOffset, center)
+                    val selected = info.visibleItemsInfo.firstOrNull { it.key == key }?.let {
+                        NgMangaLayout.measuredPage(displayPages, it.index, it.key)
+                    }
+                    val currentVisible = measured.any { it.chapter == ui.chapterIndex &&
+                        it.offset < info.viewportEndOffset && it.offset.toLong() + it.size > info.viewportStartOffset }
+                    selected to currentVisible
                 }
             }.distinctUntilChanged().collect { item ->
-                item?.let { (centered, boundary, currentVisible) ->
-                    boundary?.let { flipController.onVisiblePage(it, currentChapterVisible = false) }
+                item?.let { (centered, currentVisible) ->
                     flipController.onVisiblePage(centered, currentChapterVisible = currentVisible)
                 }
             }
@@ -276,29 +275,13 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                 val info = list.layoutInfo
                 val threshold = (if (ui.horizontal) width else height) / 2
                 info.visibleItemsInfo.any { visible ->
-                    val page = displayPages.getOrNull(visible.index)
+                    val page = NgMangaLayout.measuredPage(displayPages, visible.index, visible.key)
                     page?.chapterIndex == ui.chapterIndex &&
                         visible.offset + visible.size >= info.viewportEndOffset - threshold
                 }
             }.distinctUntilChanged().collect { nearChapterEnd ->
-                flipController.onScroll(0, nearChapterEnd)
+                flipController.onNearChapterEnd(nearChapterEnd)
             }
-        }
-        LaunchedEffect(list, displayPages, ui.horizontal, ui.rtl) {
-            var previous = list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset
-            snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }
-                .distinctUntilChanged()
-                .collect { position ->
-                    val direction = when {
-                        position.first > previous.first -> 1
-                        position.first < previous.first -> -1
-                        position.second > previous.second -> 1
-                        position.second < previous.second -> -1
-                        else -> 0
-                    }
-                    flipController.onScroll(direction, nearChapterEnd = false)
-                    previous = position
-                }
         }
         LaunchedEffect(displayPages, ui.preload, ui.active, imageTransformation) {
             if (!ui.active) { preloader.clear(); return@LaunchedEffect }

@@ -16,6 +16,9 @@ object MangaReaderFeatures {
         ImagePrefetchPlanner.plan(items, visible, forward, count, budget = 24)
     fun spreads(pages: List<ReaderPage?>, enabled: Boolean, rtl: Boolean) = SpreadPlanner.plan(pages, enabled, rtl)
     fun canCrossChapter(current: Int, candidate: Int, currentVisible: Boolean) = ChapterBoundaryPolicy.accept(current, candidate, currentVisible)
+    data class VisibleItem(val key: String, val chapter: Int, val offset: Int, val size: Int)
+    fun visiblePage(current: Int, items: List<VisibleItem>, start: Int, end: Int, center: Float): String? =
+        ChapterViewportPolicy.select(current, items.map { ChapterViewportItem(it.key, it.chapter, it.offset, it.size) }, start, end, center)
     class Navigation {
         private val delegate = ChapterNavigation()
         fun request(current: Int, total: Int, direction: Int, first: Boolean) = delegate.request(current, total, direction, first)

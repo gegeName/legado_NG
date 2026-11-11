@@ -23,6 +23,10 @@ internal data class NgMangaSpread(val originals: List<MangaPage>, val physical: 
 }
 
 internal object NgMangaLayout {
+    /** An old LazyList layout must never address a newly rebased list by index alone. */
+    fun measuredPage(display: List<BaseMangaPage>, index: Int, key: Any): BaseMangaPage? =
+        display.getOrNull(index)?.takeIf { io.legado.app.ui.book.manga.mangaPageKey(it) == key }
+
     fun neutral(page: MangaPage) = ReaderPage(PageKey(page.chapterIndex.toString(), page.index, page.mImageUrl), page.chapterIndex, page.imageCount)
     fun realPages(page: BaseMangaPage): List<MangaPage> = when (page) {
         is MangaPage -> listOf(page)

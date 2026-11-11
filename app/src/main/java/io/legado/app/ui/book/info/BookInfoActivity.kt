@@ -1194,12 +1194,14 @@ class BookInfoActivity :
         when {
             isLoading -> {
                 uiState = uiState.copy(
+                    isRefreshing = true,
                     tocText = getString(R.string.toc_s, getString(R.string.loading)),
                 )
             }
 
             chapterList.isNullOrEmpty() -> {
                 uiState = uiState.copy(
+                    isRefreshing = false,
                     tocText = getString(
                         R.string.toc_s,
                         getString(R.string.error_load_toc),
@@ -1211,6 +1213,7 @@ class BookInfoActivity :
             else -> {
                 book?.let {
                     uiState = uiState.copy(
+                        isRefreshing = false,
                         book = it.copy(),
                         tocText = getString(R.string.toc_s, it.durChapterTitle),
                         latestText = getString(R.string.lasted_show, it.latestChapterTitle),

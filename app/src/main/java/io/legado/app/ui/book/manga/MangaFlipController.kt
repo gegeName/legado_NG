@@ -5,11 +5,13 @@ import androidx.compose.ui.geometry.Offset
 import io.legado.app.integration.manga.NgMangaLayout
 import io.legado.app.ui.book.manga.entities.BaseMangaPage
 import io.legado.app.ui.book.manga.entities.MangaPage
+import io.legado.app.ui.book.manga.entities.ReaderLoading
 
 /** Owns continuous-reader chapter flips and their scroll/touch state. */
 internal class MangaFlipController(
     private val isLoading: () -> Boolean,
     private val currentChapter: () -> Int,
+    private val renderedChapter: () -> Int,
     private val currentPage: () -> MangaPage?,
     private val moveChapter: (Int) -> Boolean,
     private val updatePage: (MangaPage) -> Unit,
@@ -19,21 +21,26 @@ internal class MangaFlipController(
 
     private var state = State.IDLE
     private var pendingSourceChapter: Int? = null
-    private var lastScrollDirection = 0
     private var dragMultiTouch = false
     private var dragTriggered = false
 
     fun reset() {
         state = State.IDLE
         pendingSourceChapter = null
-        lastScrollDirection = 0
         dragMultiTouch = false
         dragTriggered = false
     }
 
     fun onVisiblePage(page: BaseMangaPage?, currentChapterVisible: Boolean) {
-        if (page == null || isLocked()) return
-        val realPage = NgMangaLayout.progress(page, currentPage()) as? MangaPage ?: return
+        if (page == null) return
+        val realPage = NgMangaLayout.progress(page, currentPage())
+        if (realPage !is MangaPage && (realPage !is ReaderLoading || !realPage.isVolume)) return
+        // Content arrival alone cannot unlock an edge drag: the source chapter
+        // can still occupy the viewport while the target is appended below it.
+        if (realPage is MangaPage && realPage.chapterIndex == renderedChapter()) {
+            onContentReady(realPage.chapterIndex, isLoading())
+        }
+        if (isLocked()) return
         if (realPage.chapterIndex != currentChapter()) {
             if (currentChapterVisible || !io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(
                     currentChapter(), realPage.chapterIndex, false,
@@ -43,11 +50,10 @@ internal class MangaFlipController(
             requestChapter(direction)
             return
         }
-        updatePage(realPage)
+        if (realPage is MangaPage) updatePage(realPage)
     }
 
-    fun onScroll(direction: Int, nearChapterEnd: Boolean) {
-        if (direction != 0) lastScrollDirection = direction
+    fun onNearChapterEnd(nearChapterEnd: Boolean) {
         if (nearChapterEnd && !isLocked()) preloadNextChapter()
     }
 
@@ -86,11 +92,12 @@ internal class MangaFlipController(
         dragTriggered = false
     }
 
-    fun onContentReady(chapterIndex: Int, loading: Boolean) {
-        if (!loading && state == State.WAITING_CONTENT && pendingSourceChapter != chapterIndex) {
+    private fun onContentReady(chapterIndex: Int, loading: Boolean) {
+        if (!loading && state == State.WAITING_CONTENT && pendingSourceChapter != chapterIndex &&
+            chapterIndex == currentChapter()
+        ) {
             state = State.IDLE
             pendingSourceChapter = null
-            lastScrollDirection = 0
         }
     }
 
@@ -106,7 +113,7 @@ internal class MangaFlipController(
         return info.visibleItemsInfo.asSequence()
             .filter { it.offset < info.viewportEndOffset && it.offset + it.size > info.viewportStartOffset }
             .flatMap { visible ->
-                NgMangaLayout.realPages(pages.getOrNull(visible.index) ?: return@flatMap emptySequence())
+                NgMangaLayout.realPages(NgMangaLayout.measuredPage(pages, visible.index, visible.key) ?: return@flatMap emptySequence())
                     .asSequence()
             }
             .firstOrNull { page ->
@@ -118,13 +125,16 @@ internal class MangaFlipController(
     private fun requestChapter(direction: Int): Boolean {
         if (isLocked()) return false
         val sourceChapter = currentChapter()
-        val moved = moveChapter(direction)
-        if (moved) {
-            state = State.WAITING_CONTENT
-            pendingSourceChapter = sourceChapter
+        // A cached target can commit synchronously and re-enter callbacks. Lock first.
+        state = State.WAITING_CONTENT
+        pendingSourceChapter = sourceChapter
+        return try {
+            moveChapter(direction).also { if (!it) reset() }
+        } catch (error: Throwable) {
+            reset()
+            throw error
         }
-        return moved
     }
 
-    private fun isLocked() = state == State.WAITING_CONTENT || isLoading()
+    private fun isLocked() = state == State.WAITING_CONTENT || isLoading() || renderedChapter() != currentChapter()
 }

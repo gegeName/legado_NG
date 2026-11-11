@@ -199,7 +199,6 @@ internal fun ExploreShowScreen(
             .fillMaxSize()
             .statusBarsPadding(),
         enabled = !state.isKindsLoading,
-        showIndicator = false
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             ExploreShowTopBar(

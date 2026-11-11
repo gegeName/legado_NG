@@ -6,6 +6,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NgMangaLayoutTest {
+    @Test fun latePreviousChapterAndEvictedChapterCannotReuseStaleLayoutIndices() {
+        val current = page(4, 0)
+        val next = page(5, 0)
+        val prepended = listOf(page(3, 0), current, next)
+        assertNull(NgMangaLayout.measuredPage(prepended, 0, "4:0"))
+        assertSame(current, NgMangaLayout.measuredPage(prepended, 1, "4:0"))
+        val rebased = listOf(current, next, page(6, 0))
+        assertNull(NgMangaLayout.measuredPage(rebased, 1, "4:0"))
+        assertNull(NgMangaLayout.measuredPage(rebased, 3, "load-more:5:0"))
+    }
+
     private fun page(chapter: Int, index: Int) = MangaPage(chapter, 5, "$chapter/$index", index, 3)
     @Test fun rtlPairsMapBothOriginalPagesAndPreserveSelectedProgress() {
         val first = page(0, 0)
@@ -23,14 +34,14 @@ class NgMangaLayoutTest {
     @Test fun prefetchBudgetCountsOriginalsAndZeroMeansNoNetwork() {
         val pages = (0..5).map { page(0, it) }
         val display = NgMangaLayout.display(pages, true, false)
-        assertEquals(listOf("0/2", "0/3", "0/4"), NgMangaLayout.prefetch(display, 0, true, 3).network.map { it.resource })
-        assertTrue(NgMangaLayout.prefetch(display, 0, true, 0).network.isEmpty())
+        assertEquals(listOf("0/2", "0/3", "0/4"), NgMangaLayout.prefetch(NgMangaLayout.prefetchItems(display), 0, true, 3).network.map { it.resource })
+        assertTrue(NgMangaLayout.prefetch(NgMangaLayout.prefetchItems(display), 0, true, 0).network.isEmpty())
     }
 
     @Test fun retainedResourcesKeepVisiblePageAndDoNotIncreaseNetworkBudget() {
         val pages = (0..5).map { page(0, it) }
         val display = NgMangaLayout.display(pages, false, false)
-        val network = NgMangaLayout.prefetch(display, 1, true, 3).network.map { it.resource }
+        val network = NgMangaLayout.prefetch(NgMangaLayout.prefetchItems(display), 1, true, 3).network.map { it.resource }
         assertEquals(3, network.size)
         assertEquals(
             setOf("0/1", "0/2", "0/3", "0/4"),
@@ -43,7 +54,7 @@ class NgMangaLayoutTest {
         val display = NgMangaLayout.display(pages, true, false)
         assertEquals(
             setOf("0/0", "0/1", "0/2"),
-            NgMangaLayout.retainedPrefetchResources(display, 0, NgMangaLayout.prefetch(display, 0, true, 1).network.map { it.resource }),
+            NgMangaLayout.retainedPrefetchResources(display, 0, NgMangaLayout.prefetch(NgMangaLayout.prefetchItems(display), 0, true, 1).network.map { it.resource }),
         )
     }
 }

@@ -105,6 +105,7 @@ internal enum class BookInfoIntroRenderMode {
 
 internal data class BookInfoUiState(
     val book: Book? = null,
+    val isRefreshing: Boolean = false,
     val coverRevision: Int = 0,
     val originText: String = "",
     val latestText: String = "",
@@ -280,11 +281,10 @@ private fun BookInfoPortrait(
     Column(modifier = Modifier.fillMaxSize()) {
         BookInfoTopBar(state = state, onEvent = onEvent)
         NgPullRefreshBox(
-            isRefreshing = false,
+            isRefreshing = state.isRefreshing,
             onRefresh = { onEvent(BookInfoUiEvent.Refresh) },
             modifier = Modifier.weight(1f),
             enabled = state.book != null,
-            showIndicator = false,
         ) {
             LazyColumn(
                 state = listState,

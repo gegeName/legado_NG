@@ -181,12 +181,17 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
     override fun upContent() {
         contentJob?.cancel()
         contentJob = lifecycleScope.launch {
-            val data = withContext(IO) { ReadManga.mangaContents }
+            // This only assembles the in-memory window. Do not suspend between its
+            // capture and publishing the matching chapter/progress to Compose.
+            val data = ReadManga.mangaContents
             // ReadManga constructs only MangaPage / ReaderLoading entries; retain its list identity.
             @Suppress("UNCHECKED_CAST")
             val pages = data.items as List<BaseMangaPage>
             val book = ReadManga.book
-            val reposition = (!ui.preserveScrollOnUpdate && ui.loading) || ui.bookUrl != book?.bookUrl.orEmpty()
+            val landingOutsideWindow = ui.preserveScrollOnUpdate && ui.chapterIndex != ReadManga.durChapterIndex &&
+                ui.pages.none { it.chapterIndex == ReadManga.durChapterIndex }
+            val reposition = (!ui.preserveScrollOnUpdate && ui.loading) || landingOutsideWindow ||
+                ui.bookUrl != book?.bookUrl.orEmpty()
             MangaScrollDiagnostics.event("CONTENT") {
                 "reposition=$reposition current=${ReadManga.durChapterIndex}:${ReadManga.durChapterPos} " +
                     "pos=${data.pos} oldCount=${ui.pages.size} count=${pages.size} " +
