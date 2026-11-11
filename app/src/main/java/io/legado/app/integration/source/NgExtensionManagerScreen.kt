@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -32,6 +34,8 @@ import io.legado.app.R
 import io.legado.app.ui.design.components.NgButtonVariant
 import io.legado.app.ui.design.components.compose.*
 import io.legado.app.ui.design.theme.NgTheme
+import io.legado.app.ui.browser.WebViewActivity
+import io.legado.app.utils.startActivity
 import io.legado.features.adapter.ExtensionFeatures
 import io.legado.features.api.source.ExtensionRepository
 import io.legado.features.api.source.ExtensionSummary
@@ -47,12 +51,15 @@ internal fun NgExtensionManagerScreen(
 ) {
     val scope = rememberCoroutineScope()
     val entries by remember { ExtensionFeatures.changes() }.collectAsState(emptyList())
+    val sources by remember { ExtensionFeatures.sourceChanges() }.collectAsState(emptyList())
     val repositories by remember { ExtensionFeatures.repositoryChanges() }.collectAsState(ExtensionFeatures.repositories())
     val downloads by model.downloads.states.collectAsState()
     val refreshState by model.repositoryRefresh.state.collectAsState()
     var repository by rememberSaveable { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
     var importing by remember { mutableStateOf(false) }
+    var checkingWebsite by remember { mutableStateOf<String?>(null) }
+    var sourceBusy by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var confirmation by remember { mutableStateOf<Pair<ExtensionSummary, Boolean>?>(null) }
     LaunchedEffect(repository) { model.repositoryRefresh.refresh(repository) }
@@ -84,7 +91,7 @@ internal fun NgExtensionManagerScreen(
                 Icon(painterResource(R.drawable.ic_more_vert), "更多操作", tint = Color(NgTheme.colors.onSurface))
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                listOf("管理仓库" to "repositories", "TVBox 配置" to "tvbox", "扩展来源与设置" to "sources").forEach { (label, section) ->
+                listOf("管理仓库" to "repositories").forEach { (label, section) ->
                     DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; onNavigate(section) })
                 }
                 DropdownMenuItem(text = { Text(if (importing) "正在导入本地 APK…" else "导入本地扩展 APK") }, enabled = !importing, onClick = {
@@ -98,7 +105,7 @@ internal fun NgExtensionManagerScreen(
             val failures = repositories.count { it.status.startsWith("刷新失败") }
             if (failures > 0) "$failures 个仓库刷新失败，可在仓库管理查看详情" else ""
         } else repositories.firstOrNull { it.url == repository }?.status.orEmpty()
-        NgExtensionCatalog(entries, repositories, downloads, refreshState.refreshing,
+        NgExtensionCatalog(entries, sources, repositories, downloads, refreshState.refreshing,
             listOf(status, refreshState.message.ifBlank { repositoryStatus }).filter { it.isNotBlank() }.joinToString("\n"),
             repository = repository,
             onSelectRepository = { selected ->
@@ -111,6 +118,45 @@ internal fun NgExtensionManagerScreen(
             onCancel = { model.downloads.cancel(it.packageName) },
             onTrust = { confirmation = it to true },
             onUninstall = { confirmation = it to false },
+            sourceBusy = sourceBusy,
+            onToggleSource = { source ->
+                if (!sourceBusy) scope.launch {
+                    sourceBusy = true
+                    try {
+                        withContext(Dispatchers.IO) {
+                            ExtensionFeatures.setEnabled(source.key, !source.enabled)
+                            NgExtensionSourceBridge.syncSources(
+                                ExtensionFeatures.sources(),
+                                setOf("mihon", "aniyomi"),
+                                applyEnabled = true,
+                            )
+                        }
+                        status = "${source.name} 已${if (source.enabled) "停用" else "启用"}"
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { status = e.message ?: "来源设置失败" }
+                    finally { sourceBusy = false }
+                }
+            },
+            checkingWebsitePackage = checkingWebsite,
+            onCheckWebsite = { entry ->
+                if (checkingWebsite == null) scope.launch {
+                    checkingWebsite = entry.packageName
+                    try {
+                        val url = withContext(Dispatchers.IO) { ExtensionFeatures.websiteUrl(entry.packageName) }
+                        if (url.isNullOrBlank()) {
+                            status = "${entry.name} 没有可打开的网站首页"
+                        } else {
+                            context.startActivity<WebViewActivity> {
+                                putExtra("title", entry.name)
+                                putExtra("url", url)
+                                putExtra("sourceName", entry.name)
+                            }
+                        }
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { status = "打开 ${entry.name} 失败：${e.message ?: e.javaClass.simpleName}" }
+                    finally { checkingWebsite = null }
+                }
+            },
         )
     }
     confirmation?.let { (entry, trust) ->
@@ -137,6 +183,7 @@ internal fun NgExtensionManagerScreen(
 @Composable
 internal fun NgExtensionCatalog(
     entries: List<ExtensionSummary>,
+    sources: List<io.legado.features.api.source.SourceDescriptor>,
     repositories: List<ExtensionRepository>,
     downloads: Map<String, ExtensionDownload>,
     refreshing: Boolean,
@@ -148,16 +195,26 @@ internal fun NgExtensionCatalog(
     onCancel: (ExtensionSummary) -> Unit,
     onTrust: (ExtensionSummary) -> Unit,
     onUninstall: (ExtensionSummary) -> Unit,
+    sourceBusy: Boolean,
+    onToggleSource: (io.legado.features.api.source.SourceDescriptor) -> Unit,
+    checkingWebsitePackage: String?,
+    onCheckWebsite: (ExtensionSummary) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var language by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("全部") }
+    val uiContext = LocalContext.current
     val languages = entries.map { it.language }.filter { it.isNotBlank() }.distinct().sorted()
     LaunchedEffect(languages) { if (language !in languages) language = "" }
+    val search = query.trim()
+    val visibleSources = sources.filter { source ->
+        search.isEmpty() || source.name.contains(search, true) ||
+            source.language.contains(search, true) || source.key.provider.contains(search, true)
+    }
     val visible = entries.filter { entry ->
         (repository.isEmpty() || entry.repositoryUrl == repository) &&
             (language.isEmpty() || entry.language == language) &&
-            (entry.name.contains(query.trim(), true) || entry.packageName.contains(query.trim(), true)) &&
+            (entry.name.contains(search, true) || entry.packageName.contains(search, true)) &&
             when (filter) {
                 "已导入" -> entry.state != "available"
                 "可更新" -> entry.updateAvailable
@@ -168,7 +225,7 @@ internal fun NgExtensionCatalog(
     val secondary = Color(NgTheme.colors.onSurfaceVariant)
     Column(Modifier.fillMaxSize()) {
         Spacer(Modifier.height(12.dp))
-        NgSearchBar(query = query, onQueryChange = { query = it }, hint = "搜索扩展名称", variant = NgSearchBarVariant.COMPACT)
+        NgSearchBar(query = query, onQueryChange = { query = it }, hint = "搜索扩展或来源", variant = NgSearchBarVariant.COMPACT)
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             CatalogSelector(
                 label = repositories.firstOrNull { it.url == repository }?.name ?: "全部仓库",
@@ -194,12 +251,63 @@ internal fun NgExtensionCatalog(
             }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${visible.size} 个扩展", color = secondary, style = MaterialTheme.typography.labelMedium)
+            Text("${visibleSources.size} 个来源 · ${visible.size} 个扩展", color = secondary, style = MaterialTheme.typography.labelMedium)
             Text("下载后应用内使用", color = secondary, style = MaterialTheme.typography.labelMedium)
         }
         if (refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (message.isNotBlank()) Text(message, Modifier.padding(vertical = 6.dp), color = secondary, style = MaterialTheme.typography.bodySmall)
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 20.dp)) {
+            item(key = "managed-sources-title") {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("扩展来源与设置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text("${visibleSources.size}", color = secondary, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            if (visibleSources.isEmpty()) {
+                item(key = "managed-sources-empty") {
+                    Text(
+                        if (sources.isEmpty()) "暂无已加载来源，请先安装并信任扩展" else "没有匹配的扩展来源",
+                        Modifier.padding(vertical = 8.dp),
+                        color = secondary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            items(visibleSources, key = { "source:${it.key.provider}:${it.key.nativeId}" }) { source ->
+                NgSourceListItem(
+                    name = source.name,
+                    detail = "${source.language} · ${source.key.provider}",
+                    enabled = source.enabled,
+                    busy = sourceBusy,
+                    onToggle = { onToggleSource(source) },
+                    actions = {
+                        NgDialogTextActionButton(
+                            text = "筛选",
+                            enabled = source.enabled && !sourceBusy,
+                            onClick = { NgSourceFiltersDialog.show(uiContext, source) },
+                        )
+                        NgDialogTextActionButton(
+                            text = "设置",
+                            enabled = !sourceBusy,
+                            onClick = { NgSourcePreferencesDialog.show(uiContext, source) },
+                        )
+                    },
+                )
+            }
+            item(key = "extensions-title") {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("扩展目录", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text("${visible.size}", color = secondary, style = MaterialTheme.typography.labelMedium)
+                }
+            }
             if (visible.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(painterResource(R.drawable.ic_cfg_source), null, Modifier.size(40.dp), tint = secondary)
@@ -209,8 +317,17 @@ internal fun NgExtensionCatalog(
                     if (entries.isEmpty()) TextButton(onClick = onManageRepositories) { Text("管理仓库") }
                 }
             }
-            items(visible, key = { it.id }) { entry ->
-                NgExtensionListItem(entry, downloads[entry.packageName], onInstall, onCancel, onTrust, onUninstall)
+            items(visible, key = { "extension:${it.id}" }) { entry ->
+                NgExtensionListItem(
+                    entry,
+                    downloads[entry.packageName],
+                    checkingWebsite = checkingWebsitePackage == entry.packageName,
+                    onInstall = onInstall,
+                    onCancel = onCancel,
+                    onTrust = onTrust,
+                    onUninstall = onUninstall,
+                    onCheckWebsite = { onCheckWebsite(entry) },
+                )
             }
         }
     }
@@ -247,10 +364,12 @@ private fun CatalogSelector(
 internal fun NgExtensionListItem(
     entry: ExtensionSummary,
     download: ExtensionDownload?,
+    checkingWebsite: Boolean,
     onInstall: (ExtensionSummary) -> Unit,
     onCancel: (ExtensionSummary) -> Unit,
     onTrust: (ExtensionSummary) -> Unit,
     onUninstall: (ExtensionSummary) -> Unit,
+    onCheckWebsite: () -> Unit,
 ) {
     val secondary = Color(NgTheme.colors.onSurfaceVariant)
     val running = download?.running == true
@@ -295,6 +414,13 @@ internal fun NgExtensionListItem(
                     },
                     variant = if (running) NgButtonVariant.NEUTRAL else NgButtonVariant.TONAL,
                     minimumWidth = 68.dp,
+                )
+            }
+            IconButton(onClick = onCheckWebsite, enabled = !checkingWebsite, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    Icons.Rounded.Language,
+                    contentDescription = "在 WebView 中检查 ${entry.name}",
+                    tint = secondary,
                 )
             }
             if (entry.state != "available" && !running) {

@@ -39,7 +39,6 @@ class NgSourceManagementActivity : BaseActivity<ComposeActivityBinding>() {
                 when (intent.getStringExtra(SECTION)) {
                     "repositories" -> NgExtensionRepositoriesScreen(::finish)
                     "tvbox" -> NgTvBoxManagerScreen(this, ::finish)
-                    "sources" -> NgExtensionSourcesScreen(this, ::finish)
                     else -> NgExtensionManagerScreen(this, extensionModel, ::finish) { section -> open(this, section) }
                 }
             }

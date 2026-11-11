@@ -59,6 +59,25 @@ object ExtensionFeatures : AutoCloseable {
         "aniyomi" -> anime
         else -> error("未注册的扩展提供方：${key.provider}")
     }
+    suspend fun websiteUrl(packageName: String): String? {
+        ExtensionRuntime.awaitInitialized()
+        val runtimeUrl = runCatching {
+            when (val source = ExtensionRuntime.firstSourceOf(packageName)) {
+                is eu.kanade.tachiyomi.source.online.HttpSource -> source.getHomeUrl()
+                is eu.kanade.tachiyomi.animesource.online.AnimeHttpSource -> source.getHomeUrl()
+                else -> null
+            }
+        }.getOrNull()?.takeIf(::isHttpUrl)
+        if (runtimeUrl != null) return runtimeUrl
+
+        return ExtensionRuntime.availableExtensions.value
+            .firstOrNull { it.pkgName == packageName }
+            ?.sources
+            ?.firstNotNullOfOrNull { source -> source.baseUrl.takeIf(::isHttpUrl) }
+    }
+
+    private fun isHttpUrl(url: String): Boolean =
+        url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)
     suspend fun sources(): List<SourceDescriptor> = withContext(Dispatchers.IO) { manga.sources() + anime.sources() }
     fun sourceChanges(): Flow<List<SourceDescriptor>> = combine(ExtensionRuntime.sources, ExtensionRuntime.animeSources, sourceRevision) { _, _, _ -> sources() }
     suspend fun openImage(ref: ImageReference): ImageStream {

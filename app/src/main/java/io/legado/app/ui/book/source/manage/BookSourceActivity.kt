@@ -266,6 +266,7 @@ class BookSourceActivity :
             BookSourceManageAction.AddDeclarative -> startActivity<BookSourceEditActivity>()
             BookSourceManageAction.AddJavaScript -> startActivity<JsSourceEditActivity>()
             BookSourceManageAction.ManageExtensions -> NgSourceManagementActivity.open(this)
+            BookSourceManageAction.ManageTvBox -> NgSourceManagementActivity.open(this, "tvbox")
             BookSourceManageAction.ImportLocal -> {
                 importDoc.launch(arrayOf("text/*", "application/json", "application/javascript"))
             }
