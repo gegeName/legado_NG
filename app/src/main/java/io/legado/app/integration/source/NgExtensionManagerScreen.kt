@@ -217,7 +217,6 @@ internal fun NgExtensionCatalog(
     var query by rememberSaveable { mutableStateOf("") }
     var language by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf(initialFilter) }
-    val uiContext = LocalContext.current
     val languages = entries.map { it.language }.filter { it.isNotBlank() }.distinct().sorted()
     LaunchedEffect(languages) { if (language !in languages) language = "" }
     val search = query.trim()
@@ -331,30 +330,22 @@ internal fun NgExtensionCatalog(
                 }
             }
             items(visible, key = { "extension:${it.id}" }) { entry ->
+                val extensionMatchesSearch = search.isEmpty() || entry.name.contains(search, true) || entry.packageName.contains(search, true)
+                val entrySources = sourcesByPackage[entry.packageName].orEmpty().filter { extensionMatchesSearch || sourceMatchesSearch(it) }
                 NgExtensionListItem(
-                    entry,
-                    downloads[entry.packageName],
+                    entry = entry,
+                    download = downloads[entry.packageName],
+                    sources = entrySources,
+                    sourceBusy = sourceBusy,
                     checkingWebsite = checkingWebsitePackage == entry.packageName,
-                    showUninstallMenu = sourcesByPackage[entry.packageName].orEmpty().isEmpty(),
+                    showUninstallMenu = entrySources.isEmpty(),
                     onInstall = onInstall,
                     onCancel = onCancel,
                     onTrust = onTrust,
                     onUninstall = onUninstall,
+                    onToggleSource = onToggleSource,
                     onCheckWebsite = { onCheckWebsite(entry) },
                 )
-                val extensionMatchesSearch = search.isEmpty() || entry.name.contains(search, true) || entry.packageName.contains(search, true)
-                sourcesByPackage[entry.packageName].orEmpty().filter { extensionMatchesSearch || sourceMatchesSearch(it) }.forEach { source ->
-                    NgSourceListItem(
-                        name = source.name,
-                        detail = "${source.language} · ${source.key.provider}",
-                        enabled = source.enabled,
-                        busy = sourceBusy,
-                        onToggle = { onToggleSource(source) },
-                        onFilter = { NgSourceFiltersDialog.show(uiContext, source) },
-                        onPreferences = { NgSourcePreferencesDialog.show(uiContext, source) },
-                        onUninstall = { onUninstall(entry) },
-                    )
-                }
             }
         }
     }
@@ -410,14 +401,18 @@ private fun CatalogCountBadge(count: Int, modifier: Modifier = Modifier) {
 internal fun NgExtensionListItem(
     entry: ExtensionSummary,
     download: ExtensionDownload?,
+    sources: List<io.legado.features.api.source.SourceDescriptor> = emptyList(),
+    sourceBusy: Boolean = false,
     checkingWebsite: Boolean,
     showUninstallMenu: Boolean,
     onInstall: (ExtensionSummary) -> Unit,
     onCancel: (ExtensionSummary) -> Unit,
     onTrust: (ExtensionSummary) -> Unit,
     onUninstall: (ExtensionSummary) -> Unit,
+    onToggleSource: ((io.legado.features.api.source.SourceDescriptor) -> Unit)? = null,
     onCheckWebsite: () -> Unit,
 ) {
+    val context = LocalContext.current
     val secondary = Color(NgTheme.colors.onSurfaceVariant)
     val running = download?.running == true
     val status = extensionStatus(entry, download)
@@ -473,12 +468,102 @@ internal fun NgExtensionListItem(
                     variant = if (running) NgButtonVariant.NEUTRAL else NgButtonVariant.TONAL,
                     minimumWidth = 68.dp,
                 )
-            }
-            if (showUninstallMenu && entry.state != "available" && !running) {
+            } else if (sources.isNotEmpty()) {
+                val primarySource = sources.first()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NgSwitchControl(
+                        checked = primarySource.enabled,
+                        onCheckedChange = { onToggleSource?.invoke(primarySource) },
+                        enabled = !sourceBusy,
+                        variant = NgSwitchControlVariant.COMPACT,
+                    )
+                    var sourceMenuExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { sourceMenuExpanded = true }, enabled = !sourceBusy, modifier = Modifier.size(40.dp)) {
+                            Icon(painterResource(R.drawable.ic_more_vert), "更多选项", tint = secondary)
+                        }
+                        DropdownMenu(expanded = sourceMenuExpanded, onDismissRequest = { sourceMenuExpanded = false }) {
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_bookshelf_manage_filter_group), null) },
+                                text = { Text("筛选") },
+                                enabled = primarySource.enabled && !sourceBusy,
+                                onClick = {
+                                    sourceMenuExpanded = false
+                                    NgSourceFiltersDialog.show(context, primarySource)
+                                },
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_settings), null) },
+                                text = { Text("设置") },
+                                enabled = !sourceBusy,
+                                onClick = {
+                                    sourceMenuExpanded = false
+                                    NgSourcePreferencesDialog.show(context, primarySource)
+                                },
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_bgm_menu_delete), null) },
+                                text = { Text("卸载扩展") },
+                                enabled = !sourceBusy,
+                                onClick = {
+                                    sourceMenuExpanded = false
+                                    onUninstall(entry)
+                                },
+                            )
+                        }
+                    }
+                }
+            } else if (showUninstallMenu && entry.state != "available") {
                 Box {
                     IconButton(onClick = { menu = true }, modifier = Modifier.width(36.dp)) { Icon(painterResource(R.drawable.ic_more_vert), "扩展操作", tint = secondary) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("卸载扩展") }, onClick = { menu = false; onUninstall(entry) })
+                    }
+                }
+            }
+        }
+        if (sources.size > 1) {
+            sources.drop(1).forEach { source ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 96.dp, end = 4.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(source.name, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${source.language} · ${source.key.provider}", style = MaterialTheme.typography.labelSmall, color = secondary)
+                    }
+                    NgSwitchControl(
+                        checked = source.enabled,
+                        onCheckedChange = { onToggleSource?.invoke(source) },
+                        enabled = !sourceBusy,
+                        variant = NgSwitchControlVariant.COMPACT,
+                    )
+                    var extraMenuExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { extraMenuExpanded = true }, enabled = !sourceBusy, modifier = Modifier.size(40.dp)) {
+                            Icon(painterResource(R.drawable.ic_more_vert), "更多选项", tint = secondary)
+                        }
+                        DropdownMenu(expanded = extraMenuExpanded, onDismissRequest = { extraMenuExpanded = false }) {
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_bookshelf_manage_filter_group), null) },
+                                text = { Text("筛选") },
+                                enabled = source.enabled && !sourceBusy,
+                                onClick = {
+                                    extraMenuExpanded = false
+                                    NgSourceFiltersDialog.show(context, source)
+                                },
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_settings), null) },
+                                text = { Text("设置") },
+                                enabled = !sourceBusy,
+                                onClick = {
+                                    extraMenuExpanded = false
+                                    NgSourcePreferencesDialog.show(context, source)
+                                },
+                            )
+                        }
                     }
                 }
             }

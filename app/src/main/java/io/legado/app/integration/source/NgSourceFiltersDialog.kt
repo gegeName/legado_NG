@@ -48,8 +48,8 @@ object NgSourceFiltersDialog {
                 }) {
                     Column(Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState())) {
                         if (error.isNotBlank()) Text(error)
-                        if (session == null && error.isBlank()) Text("正在读取筛选项")
-                        if (session != null && fields.isEmpty()) Text("此来源没有筛选项")
+                        if (session == null && error.isBlank()) Text("正在读取筛选项…")
+                        if (session != null && fields.isEmpty()) Text("此来源没有可用的筛选项")
                         NgSourceFilterFields(fields) { path, value ->
                             try { session?.set(path, value); fields = session?.describe().orEmpty() }
                             catch (e: Exception) { error = e.message.orEmpty() }
@@ -65,15 +65,22 @@ object NgSourceFiltersDialog {
 @Composable private fun NgSourceFilterFields(fields: List<FilterDescriptor>, change: (List<Int>, FilterValue) -> Unit) {
     val arrow = painterResource(R.drawable.ic_ng_spinner_arrow_down)
     fields.forEach { field ->
+        val title = translateToChinese(field.title)
         when (field.kind) {
-            FilterKind.HEADER -> Text(field.title)
+            FilterKind.HEADER -> Text(title)
             FilterKind.SEPARATOR -> Spacer(Modifier.height(8.dp))
-            FilterKind.GROUP -> { Text(field.title); NgSourceFilterFields(field.children, change) }
-            FilterKind.TEXT -> NgFormField(label = field.title, value = field.value.text, onValueChange = { change(field.path, field.value.copy(text = it)) })
-            FilterKind.CHECKBOX -> NgFormSelectField(field.title, field.value.checked.toString(), listOf(NgFormSelectOption("否", "false"), NgFormSelectOption("是", "true")), { change(field.path, field.value.copy(checked = it.toBoolean())) }, arrowIcon = arrow)
-            FilterKind.TRISTATE -> NgFormSelectField(field.title, field.value.selected.toString(), listOf("忽略", "包含", "排除").mapIndexed { i, s -> NgFormSelectOption(s, i.toString()) }, { change(field.path, field.value.copy(selected = it.toInt())) }, arrowIcon = arrow)
+            FilterKind.GROUP -> { Text(title); NgSourceFilterFields(field.children, change) }
+            FilterKind.TEXT -> NgFormField(label = title, value = field.value.text, onValueChange = { change(field.path, field.value.copy(text = it)) })
+            FilterKind.CHECKBOX -> NgFormSelectField(title, field.value.checked.toString(), listOf(NgFormSelectOption("否", "false"), NgFormSelectOption("是", "true")), { change(field.path, field.value.copy(checked = it.toBoolean())) }, arrowIcon = arrow)
+            FilterKind.TRISTATE -> NgFormSelectField(title, field.value.selected.toString(), listOf("忽略", "包含", "排除").mapIndexed { i, s -> NgFormSelectOption(s, i.toString()) }, { change(field.path, field.value.copy(selected = it.toInt())) }, arrowIcon = arrow)
             FilterKind.SELECT, FilterKind.SORT -> {
-                NgFormSelectField(field.title, field.value.selected.toString(), field.choices.mapIndexed { i, s -> NgFormSelectOption(s, i.toString()) }, { change(field.path, field.value.copy(selected = it.toInt())) }, arrowIcon = arrow)
+                NgFormSelectField(
+                    title,
+                    field.value.selected.toString(),
+                    field.choices.mapIndexed { i, s -> NgFormSelectOption(translateToChinese(s), i.toString()) },
+                    { change(field.path, field.value.copy(selected = it.toInt())) },
+                    arrowIcon = arrow,
+                )
                 if (field.kind == FilterKind.SORT) NgDialogTextActionButton(text = if (field.value.ascending) "升序" else "降序", onClick = { change(field.path, field.value.copy(ascending = !field.value.ascending)) })
             }
         }

@@ -28,7 +28,7 @@ object NgSourcePreferencesDialog {
             setContent { NgAppTheme(updateSystemBars = false) {
                 var session by remember { mutableStateOf<SourcePreferenceSession?>(null) }
                 var fields by remember { mutableStateOf<List<SourcePreferenceField>>(emptyList()) }
-                var message by remember { mutableStateOf("正在读取设置") }
+                var message by remember { mutableStateOf("正在读取设置…") }
                 fun update(action: () -> Boolean) {
                     try {
                         message = if (action()) "已应用" else "扩展未接受此次修改"
@@ -63,16 +63,18 @@ object NgSourcePreferencesDialog {
 @Composable private fun PreferenceFields(fields: List<SourcePreferenceField>, change: (List<Int>, SourcePreferenceValue) -> Unit, activate: (List<Int>) -> Unit) {
     val arrow = painterResource(R.drawable.ic_ng_spinner_arrow_down)
     fields.forEach { field -> key(field.path) {
+        val title = translateToChinese(field.title)
+        val summary = translateToChinese(field.summary)
         Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            if (field.summary.isNotBlank()) Text(field.summary)
+            if (summary.isNotBlank()) Text(summary)
             when (field.kind) {
-                SourcePreferenceKind.GROUP -> { Text(field.title); PreferenceFields(field.children, change, activate) }
-                SourcePreferenceKind.BOOLEAN -> NgFormSelectField(field.title, field.value.checked.toString(), listOf(NgFormSelectOption("关闭", "false"), NgFormSelectOption("开启", "true")), { if (field.enabled) change(field.path, field.value.copy(checked = it.toBoolean())) }, arrowIcon = arrow)
-                SourcePreferenceKind.SELECT -> NgFormSelectField(field.title, field.value.text, field.choices.map { NgFormSelectOption(it.second, it.first) }, { if (field.enabled) change(field.path, field.value.copy(text = it)) }, arrowIcon = arrow)
+                SourcePreferenceKind.GROUP -> { Text(title); PreferenceFields(field.children, change, activate) }
+                SourcePreferenceKind.BOOLEAN -> NgFormSelectField(title, field.value.checked.toString(), listOf(NgFormSelectOption("关闭", "false"), NgFormSelectOption("开启", "true")), { if (field.enabled) change(field.path, field.value.copy(checked = it.toBoolean())) }, arrowIcon = arrow)
+                SourcePreferenceKind.SELECT -> NgFormSelectField(title, field.value.text, field.choices.map { NgFormSelectOption(translateToChinese(it.second), it.first) }, { if (field.enabled) change(field.path, field.value.copy(text = it)) }, arrowIcon = arrow)
                 SourcePreferenceKind.MULTISELECT -> {
-                    Text(field.title)
-                    field.choices.forEach { (value, title) ->
-                        NgDialogTextActionButton(text = (if (value in field.value.selected) "✓ " else "○ ") + title, enabled = field.enabled, onClick = {
+                    Text(title)
+                    field.choices.forEach { (value, optionTitle) ->
+                        NgDialogTextActionButton(text = (if (value in field.value.selected) "✓ " else "○ ") + translateToChinese(optionTitle), enabled = field.enabled, onClick = {
                             val values = field.value.selected.let { if (value in it) it - value else it + value }
                             change(field.path, field.value.copy(selected = values))
                         })
@@ -80,12 +82,12 @@ object NgSourcePreferencesDialog {
                 }
                 SourcePreferenceKind.TEXT, SourcePreferenceKind.NUMBER -> {
                     var draft by remember(field.value.text) { mutableStateOf(field.value.text) }
-                    NgFormField(label = field.title, value = draft, onValueChange = { draft = it })
-                    if (field.kind == SourcePreferenceKind.NUMBER) Text("范围：${field.minimum}–${field.maximum}")
+                    NgFormField(label = title, value = draft, onValueChange = { draft = it })
+                    if (field.kind == SourcePreferenceKind.NUMBER) Text("数值范围：${field.minimum}–${field.maximum}")
                     NgDialogTextActionButton(text = "应用", enabled = field.enabled && draft != field.value.text, onClick = { change(field.path, field.value.copy(text = draft)) })
                 }
-                SourcePreferenceKind.ACTION -> NgDialogTextActionButton(text = field.title, enabled = field.enabled, onClick = { activate(field.path) })
-                SourcePreferenceKind.UNSUPPORTED -> Text(field.title + " · 此项需要扩展自定义界面")
+                SourcePreferenceKind.ACTION -> NgDialogTextActionButton(text = title, enabled = field.enabled, onClick = { activate(field.path) })
+                SourcePreferenceKind.UNSUPPORTED -> Text(title + " · 此项需要扩展自定义界面")
             }
         }
     } }
