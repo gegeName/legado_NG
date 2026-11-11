@@ -145,7 +145,8 @@ class TvBoxProvider(private val context: Context, private val settings: ConfigPo
         TvBoxJson.page(spider.category(session.category(), page.coerceAtLeast(1), session.extend()), page)
     }
     override suspend fun details(source: SourceKey, item: CatalogItem): CatalogItem = call(source) { _, _, spider ->
-        TvBoxJson.items(spider.detail(item.id)).firstOrNull { it.id == item.id } ?: error("TVBox 详情为空")
+        TvBoxJson.items(spider.detail(item.id), fallbackId = item.id).firstOrNull { it.id == item.id }
+            ?: error("TVBox 详情为空")
     }
     override suspend fun chapters(source: SourceKey, item: CatalogItem): List<ChapterDescriptor> = TvBoxJson.chapters(details(source, item))
     override suspend fun content(source: SourceKey, item: CatalogItem, chapter: ChapterDescriptor): ContentResult {

@@ -11,13 +11,18 @@ object TvBoxJson {
         require(text.toByteArray().size <= TvBoxConfigs.MAX_CONFIG) { "Spider 结果过大" }
         return JsonParser.parseString(text).asJsonObject
     }
-    fun items(text: String): List<CatalogItem> = root(text).getAsJsonArray("list")?.map { element ->
-        val item = element.asJsonObject
-        val id = item.text("vod_id")
-        require(id.isNotBlank()) { "TVBox 作品缺少 vod_id" }
-        CatalogItem(id, item.text("vod_name"), item.text("vod_actor"), item.text("vod_pic"),
-            item.text("vod_content"), item.text("vod_class"), item.toString())
-    }.orEmpty()
+    fun items(text: String, fallbackId: String? = null): List<CatalogItem> {
+        val list = root(text).getAsJsonArray("list") ?: return emptyList()
+        return list.map { element ->
+            val item = element.asJsonObject
+            val id = item.text("vod_id").ifBlank {
+                fallbackId.takeIf { list.size() == 1 }.orEmpty()
+            }
+            require(id.isNotBlank()) { "TVBox 作品缺少 vod_id" }
+            CatalogItem(id, item.text("vod_name"), item.text("vod_actor"), item.text("vod_pic"),
+                item.text("vod_content"), item.text("vod_class"), item.toString())
+        }
+    }
     fun page(text: String, page: Int): CatalogPage {
         val root = root(text)
         val count = root.int("pagecount", -1)

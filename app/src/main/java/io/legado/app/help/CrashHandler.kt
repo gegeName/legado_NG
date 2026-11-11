@@ -48,6 +48,7 @@ class CrashHandler(val context: Context) : Thread.UncaughtExceptionHandler {
      * uncaughtException 回调函数
      */
     override fun uncaughtException(thread: Thread, ex: Throwable) {
+        if (isTvBoxGuardCacheContextFailure(thread, ex)) return
         if (shouldAbsorb(ex)) {
             AppLog.put("发生未捕获的异常\n${ex.localizedMessage}", ex)
             Looper.loop()
@@ -55,6 +56,14 @@ class CrashHandler(val context: Context) : Thread.UncaughtExceptionHandler {
             ReadAloud.stop(context)
             handleException(ex)
             mDefaultHandler?.uncaughtException(thread, ex)
+        }
+    }
+
+    private fun isTvBoxGuardCacheContextFailure(thread: Thread, error: Throwable): Boolean {
+        if (thread === Looper.getMainLooper().thread) return false
+        if (error !is NullPointerException || error.message?.contains("Context.getCacheDir()") != true) return false
+        return error.stackTrace.any {
+            it.className == "com.github.catvod.spider.merge.M4" && it.methodName == "yq"
         }
     }
 
