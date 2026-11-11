@@ -615,6 +615,16 @@ object ReadBook : CoroutineScope by MainScope() {
         curPageChanged(true)
     }
 
+    /** Commits speech-driven page movement without marking the reader as manually navigated. */
+    @Synchronized
+    internal fun commitReadAloudPosition(position: Int) {
+        if (tocOrderPausedBookUrl != null && tocOrderPausedBookUrl == book?.bookUrl) return
+        if (position != durChapterPos) pendingBookmarkNavigation = null
+        durChapterPos = position
+        saveRead(true)
+        curPageChanged(restartReadAloud = false)
+    }
+
     fun recycleRecorders(beforeIndex: Int, afterIndex: Int) {
         if (!AppConfig.optimizeRender) {
             return

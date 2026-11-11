@@ -195,7 +195,7 @@ abstract class BaseReadAloudService : BaseService(),
                 "nativePage=${ReadBook.durPageIndex} position=${ReadBook.durChapterPos} target=$target speech=$readAloudNumber")
         }
         if (readAloudInput(chapter).pageText is io.legado.app.help.tts.LayoutReadAloudPageText) {
-            ReadBook.commitContentPosition(readAloudPageStart(chapter, pageIndex))
+            ReadBook.commitReadAloudPosition(readAloudPageStart(chapter, pageIndex))
         } else if (next) ReadBook.moveToNextPage() else ReadBook.moveToPrevPage()
         if (trace) android.util.Log.d("EpubAloudTrace", "native-page-return chapter=${chapter.chapter.index} " +
             "position=${ReadBook.durChapterPos} nativePage=${ReadBook.durPageIndex}")
