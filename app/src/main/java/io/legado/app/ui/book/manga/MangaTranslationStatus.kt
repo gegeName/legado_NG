@@ -80,8 +80,8 @@ internal fun MangaTranslationStatusChip(
                 text = when (status) {
                     MangaTranslationStatus.TRANSLATING -> "翻译中"
                     MangaTranslationStatus.LOADING -> "译图加载中"
-                    MangaTranslationStatus.PARTIAL -> "部分译文 · 补译"
-                    MangaTranslationStatus.FAILED -> "翻译失败 · 重试"
+                    MangaTranslationStatus.PARTIAL -> "补译"
+                    MangaTranslationStatus.FAILED -> "重试"
                 },
                 fontSize = 12.sp,
                 lineHeight = 16.sp,

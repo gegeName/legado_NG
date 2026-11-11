@@ -162,7 +162,7 @@ class ReadRssActivity : VMBaseActivity<RssComposeBinding, ReadRssViewModel>(),
                     ttsPlaying = ttsPlaying,
                     loginVisible = loginVisible,
                     customView = customView,
-                    onBack = { onBackPressedDispatcher.onBackPressed() },
+                    onBack = { finish() },
                     onAction = ::handleToolbarAction
                 )
             }

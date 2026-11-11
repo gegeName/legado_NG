@@ -22,6 +22,23 @@ import io.legado.app.ui.widget.dialog.applyNgWindow
 import io.legado.features.api.manga.TranslationConfiguration
 
 object NgMangaTranslationDialog {
+    private val targetLanguageOptions = listOf(
+        "简体中文" to "zh-CN",
+        "繁体中文" to "zh-TW",
+        "英语" to "en",
+        "日语" to "ja",
+        "韩语" to "ko",
+        "法语" to "fr",
+        "西班牙语" to "es",
+        "德语" to "de",
+        "俄语" to "ru",
+        "葡萄牙语" to "pt",
+        "意大利语" to "it",
+        "阿拉伯语" to "ar",
+        "泰语" to "th",
+        "越南语" to "vi",
+    ).map { NgFormSelectOption(it.first, it.second) }
+
     fun show(context: Context, onSaved: () -> Unit): ComponentDialog {
         val dialog = ComponentDialog(context)
         val view = ComposeView(context).apply {
@@ -55,7 +72,18 @@ object NgMangaTranslationDialog {
                             NgFormSelectField(label = "原文语言", selectedValue = settings.sourceLanguage,
                                 options = listOf("自动" to "auto", "日文" to "ja", "英文 / 拉丁文" to "en", "韩文" to "ko").map { NgFormSelectOption(it.first, it.second) },
                                 onValueChange = { settings = settings.copy(sourceLanguage = it) }, arrowIcon = painterResource(R.drawable.ic_ng_spinner_arrow_down))
-                            NgFormField("目标语言", settings.targetLanguage, { settings = settings.copy(targetLanguage = it.trim()) })
+                            NgFormSelectField(
+                                label = "目标语言",
+                                selectedValue = settings.targetLanguage,
+                                options = buildList {
+                                    if (targetLanguageOptions.none { it.value == settings.targetLanguage }) {
+                                        add(NgFormSelectOption("${settings.targetLanguage}（当前）", settings.targetLanguage))
+                                    }
+                                    addAll(targetLanguageOptions)
+                                },
+                                onValueChange = { settings = settings.copy(targetLanguage = it) },
+                                arrowIcon = painterResource(R.drawable.ic_ng_spinner_arrow_down),
+                            )
                             NgFormField("后台预译图片数（默认4，0关闭）", preloadCountText, { value ->
                                 preloadCountText = value
                                 value.toIntOrNull()?.takeIf { it in 0..24 }?.let { settings = settings.copy(preloadCount = it) }
