@@ -54,39 +54,56 @@ fun safeExtensionFileNameSegment(raw: String): String =
     raw.map { if (it.isLetterOrDigit() || it == '.' || it == '_' || it == '-') it else '_' }
         .joinToString("")
 
-suspend fun downloadExtensionApk(url: String, target: File, onProgress: suspend (Int) -> Unit) {
+suspend fun downloadExtensionApk(url: String, target: File, onProgress: suspend (InstallStep.Progress) -> Unit) {
     val request = Request.Builder().url(url).build()
     withRuntimeResponse(request) { response ->
         if (!response.isSuccessful) {
             throw ExtensionException("下载失败 HTTP ${response.code}: $url")
         }
         val body = response.body
-        val total = body.contentLength()
-        check(total <= MAX_APK_BYTES) { "扩展安装包过大" }
         body.byteStream().use { input ->
-            target.outputStream().use { output ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var lastProgress = -1
-                var written = 0L
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val read = input.read(buffer)
-                    if (read == -1) break
-                    written += read
-                    check(written <= MAX_APK_BYTES) { "扩展安装包过大" }
-                    output.write(buffer, 0, read)
-                    if (total > 0) {
-                        val progress = ((written * 100) / total).toInt()
-                        if (progress != lastProgress) {
-                            lastProgress = progress
-                            onProgress(progress)
-                        }
-                    }
-                }
-                output.fd.sync()
-            }
+            copyExtensionApk(input, body.contentLength(), target, onProgress)
         }
     }
+}
+
+/** Missing Content-Length (including decompressed bodies) still reports received bytes. */
+internal suspend fun copyExtensionApk(
+    input: java.io.InputStream,
+    contentLength: Long,
+    target: File,
+    onProgress: suspend (InstallStep.Progress) -> Unit,
+) {
+    check(contentLength <= MAX_APK_BYTES) { "扩展安装包过大" }
+    val total = contentLength.takeIf { it > 0 }
+    var written = 0L
+    fun progress() = InstallStep.Progress(
+        progress = total?.let { ((written * 100) / it).toInt().coerceIn(0, 100) } ?: -1,
+        downloadedBytes = written,
+        totalBytes = total,
+    )
+    var lastProgress = progress()
+    onProgress(lastProgress)
+    target.outputStream().use { output ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val read = input.read(buffer)
+            if (read == -1) break
+            written += read
+            check(written <= MAX_APK_BYTES) { "扩展安装包过大" }
+            output.write(buffer, 0, read)
+            val next = progress()
+            if (next.progress != lastProgress.progress ||
+                (total == null && (lastProgress.downloadedBytes == 0L || written - lastProgress.downloadedBytes >= 64 * 1024))) {
+                onProgress(next)
+                lastProgress = next
+            }
+        }
+        output.fd.sync()
+    }
+    val finalProgress = progress()
+    if (finalProgress != lastProgress) onProgress(finalProgress)
 }
 
 private const val MAX_APK_BYTES = 128L * 1024 * 1024
@@ -165,7 +182,7 @@ abstract class ExtensionInstallScaffold {
                 discardInstallTemps(extensionDir(), extension.pkgName)
                 val target = newInstallTempFile(extension.pkgName)
                 apkFile = target
-                downloadExtensionApk(extension.apkUrl, target) { emit(InstallStep.Progress(it)) }
+                downloadExtensionApk(extension.apkUrl, target) { emit(it) }
                 currentCoroutineContext().ensureActive()
 
                 emit(InstallStep.Installing)

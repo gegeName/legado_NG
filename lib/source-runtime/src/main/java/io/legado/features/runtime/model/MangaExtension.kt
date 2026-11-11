@@ -115,7 +115,11 @@ enum class ContentWarning {
 }
 
 sealed class InstallStep {
-    data class Progress(val progress: Int = 0) : InstallStep()
+    data class Progress(
+        val progress: Int = 0,
+        val downloadedBytes: Long = 0,
+        val totalBytes: Long? = null,
+    ) : InstallStep()
     data object Downloading : InstallStep()
     data object Installing : InstallStep()
     data object Installed : InstallStep()

@@ -14,4 +14,11 @@ data class ExtensionSummary(
     val repositoryUrl: String? = null,
     val iconUrl: String? = null,
 )
-data class InstallProgress(val state: String, val percent: Int = 0, val error: String? = null)
+data class InstallProgress(
+    val state: String,
+    /** Negative when the total size is unknown; downloadedBytes still advances. */
+    val percent: Int = 0,
+    val error: String? = null,
+    val downloadedBytes: Long = 0,
+    val totalBytes: Long? = null,
+)

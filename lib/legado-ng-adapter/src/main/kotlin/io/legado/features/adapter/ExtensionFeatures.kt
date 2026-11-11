@@ -167,7 +167,7 @@ object ExtensionFeatures : AutoCloseable {
                 InstallStep.Downloading -> InstallProgress("downloading")
                 InstallStep.Installing -> InstallProgress("installing")
                 InstallStep.Installed -> InstallProgress("installed")
-                is InstallStep.Progress -> InstallProgress("downloading", it.progress)
+                is InstallStep.Progress -> InstallProgress("downloading", it.progress, downloadedBytes = it.downloadedBytes, totalBytes = it.totalBytes)
                 is InstallStep.Error -> InstallProgress("error", error = it.error)
             }
         }
@@ -178,7 +178,7 @@ object ExtensionFeatures : AutoCloseable {
             InstallStep.Downloading -> InstallProgress("downloading")
             InstallStep.Installing -> InstallProgress("installing")
             InstallStep.Installed -> { reload(); InstallProgress("installed") }
-            is InstallStep.Progress -> InstallProgress("downloading", step.progress)
+            is InstallStep.Progress -> InstallProgress("downloading", step.progress, downloadedBytes = step.downloadedBytes, totalBytes = step.totalBytes)
             is InstallStep.Error -> InstallProgress("error", error = step.error)
         }
     }

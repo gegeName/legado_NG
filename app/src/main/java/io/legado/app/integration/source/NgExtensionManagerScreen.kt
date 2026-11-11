@@ -611,10 +611,20 @@ private fun languageLabel(language: String): String = when (language.lowercase()
         ?: "未知语言（${language.uppercase()}）"
 }
 
-private fun progressText(progress: InstallProgress): String = when (progress.state) {
-    "downloading" -> "正在下载 ${progress.percent}%"
+internal fun progressText(progress: InstallProgress): String = when (progress.state) {
+    "downloading" -> when {
+        progress.totalBytes != null || progress.percent > 0 -> "正在下载 ${progress.percent.coerceIn(0, 100)}%"
+        progress.downloadedBytes > 0 -> "正在下载 · 已下载 ${formatDownloadBytes(progress.downloadedBytes)}"
+        else -> "正在下载…"
+    }
     "installing" -> "正在导入应用内…"
     "installed" -> "已导入，等待加载或信任"
     "error" -> "导入失败：${progress.error ?: "未知错误"}"
     else -> progress.state
+}
+
+private fun formatDownloadBytes(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024))
+    bytes >= 1024 -> String.format(Locale.ROOT, "%.1f KB", bytes / 1024.0)
+    else -> "$bytes B"
 }

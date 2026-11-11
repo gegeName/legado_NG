@@ -25,8 +25,10 @@ internal fun extensionMatchesStatus(
     entry: ExtensionSummary,
     download: ExtensionDownload?,
     filter: NgExtensionStatus,
-): Boolean = if (filter == NgExtensionStatus.UPDATE_AVAILABLE) {
-    entry.updateAvailable && download?.progress?.state != "installed"
-} else {
-    extensionStatus(entry, download) == filter
+): Boolean = when (filter) {
+    NgExtensionStatus.NOT_DOWNLOADED ->
+        (entry.state == "available" || download?.running == true) && download?.progress?.state != "installed"
+    NgExtensionStatus.UPDATE_AVAILABLE ->
+        entry.updateAvailable && download?.progress?.state != "installed"
+    else -> extensionStatus(entry, download) == filter
 }
