@@ -60,7 +60,7 @@ class HomeViewModel(
     private val mutableUpdatesState = MutableStateFlow(HomeUpdatesState())
     internal val updatesState = mutableUpdatesState.asStateFlow()
     private val mutableAutoRefreshUpdates = MutableStateFlow(
-        application.getPrefBoolean(AUTO_REFRESH_UPDATES_KEY, true)
+        application.getPrefBoolean(AUTO_REFRESH_UPDATES_KEY, false)
     )
     internal val autoRefreshUpdates = mutableAutoRefreshUpdates.asStateFlow()
     private val updatesRefresh = MutableStateFlow(0L)
