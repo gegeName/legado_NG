@@ -17,6 +17,7 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import io.legado.app.R
 import io.legado.app.ui.design.theme.*
 import io.legado.features.api.source.*
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -27,6 +28,38 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [35], qualifiers = "w411dp-h891dp-xxhdpi", application = InterfaceFontTestApplication::class)
 class NgExtensionCatalogScreenshotTest {
     @Test fun concurrentDownloadRows() = captureCatalog()
+
+    @Test
+    fun extensionStatesMapToDistinctTabs() {
+        val available = ExtensionSummary("a", "pkg.a", "A", "1", "available")
+        assertEquals(NgExtensionStatus.NOT_DOWNLOADED, extensionStatus(available, null))
+        assertEquals(
+            NgExtensionStatus.DOWNLOADING,
+            extensionStatus(available, ExtensionDownload(InstallProgress("downloading"), true)),
+        )
+        assertEquals(
+            NgExtensionStatus.DOWNLOADED,
+            extensionStatus(available, ExtensionDownload(InstallProgress("installed"), false)),
+        )
+        assertEquals(
+            NgExtensionStatus.UPDATE_AVAILABLE,
+            extensionStatus(available.copy(state = "loaded", updateAvailable = true), null),
+        )
+        assertEquals(
+            NgExtensionStatus.DOWNLOAD_FAILED,
+            extensionStatus(
+                available,
+                ExtensionDownload(InstallProgress("error"), false, ExtensionDownloadFailureStage.DOWNLOAD),
+            ),
+        )
+        assertEquals(
+            NgExtensionStatus.DOWNLOAD_ERROR,
+            extensionStatus(
+                available,
+                ExtensionDownload(InstallProgress("error"), false, ExtensionDownloadFailureStage.INSTALL),
+            ),
+        )
+    }
 
     @Test
     @Config(qualifiers = "w320dp-h700dp-night-xxhdpi")
@@ -60,11 +93,35 @@ class NgExtensionCatalogScreenshotTest {
                         IconButton(onClick = {}) { Icon(painterResource(R.drawable.ic_bgm_menu_refresh), "刷新") }
                         IconButton(onClick = {}) { Icon(painterResource(R.drawable.ic_more_vert), "更多") }
                     }) {
-                        NgExtensionCatalog(entries, listOf(ExtensionRepository("fixture", "示例仓库", "fixture")), mapOf(
-                            "pkg.a" to ExtensionDownload(InstallProgress("downloading", 32), true),
-                            "pkg.b" to ExtensionDownload(InstallProgress("downloading", 78), true),
-                            "pkg.e" to ExtensionDownload(InstallProgress("error", error = "网络请求失败，请重试"), false),
-                        ), false, "", "", {}, {}, {}, {}, {}, {})
+                        NgExtensionCatalog(
+                            entries = entries,
+                            sources = emptyList(),
+                            repositories = listOf(ExtensionRepository("fixture", "示例仓库", "fixture")),
+                            downloads = mapOf(
+                                "pkg.a" to ExtensionDownload(InstallProgress("downloading", 32), true),
+                                "pkg.b" to ExtensionDownload(InstallProgress("downloading", 78), true),
+                                "pkg.e" to ExtensionDownload(
+                                    InstallProgress("error", error = "网络请求失败，请重试"),
+                                    false,
+                                    ExtensionDownloadFailureStage.DOWNLOAD,
+                                ),
+                            ),
+                            refreshing = false,
+                            message = "",
+                            repository = "",
+                            onSelectRepository = {},
+                            onManageRepositories = {},
+                            onInstall = {},
+                            onUpdateAll = {},
+                            onCancel = {},
+                            onTrust = {},
+                            onUninstall = {},
+                            sourceBusy = false,
+                            onToggleSource = {},
+                            checkingWebsitePackage = null,
+                            onCheckWebsite = {},
+                            initialFilter = NgExtensionStatus.DOWNLOADING,
+                        )
                     }
                     }
                 }

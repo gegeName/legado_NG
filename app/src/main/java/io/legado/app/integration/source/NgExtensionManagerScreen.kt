@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import java.util.Locale
 import com.bumptech.glide.Glide
 import io.legado.app.R
 import io.legado.app.ui.design.components.NgButtonVariant
@@ -41,6 +42,7 @@ import io.legado.features.api.source.ExtensionRepository
 import io.legado.features.api.source.ExtensionSummary
 import io.legado.features.api.source.InstallProgress
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 
 @Composable
 internal fun NgExtensionManagerScreen(
@@ -115,6 +117,14 @@ internal fun NgExtensionManagerScreen(
             },
             onManageRepositories = { onNavigate("repositories") },
             onInstall = { model.downloads.start(it.packageName, it.id) },
+            onUpdateAll = { updates ->
+                scope.launch {
+                    updates.forEach { entry ->
+                        model.downloads.start(entry.packageName, entry.id)
+                        model.downloads.states.first { states -> states[entry.packageName]?.running != true }
+                    }
+                }
+            },
             onCancel = { model.downloads.cancel(it.packageName) },
             onTrust = { confirmation = it to true },
             onUninstall = { confirmation = it to false },
@@ -171,6 +181,7 @@ internal fun NgExtensionManagerScreen(
                                 if (trust) ExtensionFeatures.trust(entry.packageName, checkNotNull(entry.fingerprint))
                                 else ExtensionFeatures.uninstall(entry.packageName)
                             }
+                            if (!trust) model.downloads.clear(entry.packageName)
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) { status = e.message ?: "操作失败" }
                     }
@@ -192,6 +203,7 @@ internal fun NgExtensionCatalog(
     onSelectRepository: (String) -> Unit,
     onManageRepositories: () -> Unit,
     onInstall: (ExtensionSummary) -> Unit,
+    onUpdateAll: (List<ExtensionSummary>) -> Unit,
     onCancel: (ExtensionSummary) -> Unit,
     onTrust: (ExtensionSummary) -> Unit,
     onUninstall: (ExtensionSummary) -> Unit,
@@ -199,14 +211,21 @@ internal fun NgExtensionCatalog(
     onToggleSource: (io.legado.features.api.source.SourceDescriptor) -> Unit,
     checkingWebsitePackage: String?,
     onCheckWebsite: (ExtensionSummary) -> Unit,
+    initialFilter: NgExtensionStatus = NgExtensionStatus.NOT_DOWNLOADED,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var language by rememberSaveable { mutableStateOf("") }
-    var filter by rememberSaveable { mutableStateOf("全部") }
+    var filter by rememberSaveable { mutableStateOf(initialFilter) }
     val uiContext = LocalContext.current
     val languages = entries.map { it.language }.filter { it.isNotBlank() }.distinct().sorted()
     LaunchedEffect(languages) { if (language !in languages) language = "" }
     val search = query.trim()
+    val matchingUpdates = entries.filter { entry ->
+        (repository.isEmpty() || entry.repositoryUrl == repository) &&
+            (language.isEmpty() || entry.language == language) &&
+            (entry.name.contains(search, true) || entry.packageName.contains(search, true)) &&
+            extensionStatus(entry, downloads[entry.packageName]) == NgExtensionStatus.UPDATE_AVAILABLE
+    }.sortedWith(compareBy<ExtensionSummary> { it.name.lowercase() }.thenBy { it.id })
     val visibleSources = sources.filter { source ->
         search.isEmpty() || source.name.contains(search, true) ||
             source.language.contains(search, true) || source.key.provider.contains(search, true)
@@ -215,12 +234,7 @@ internal fun NgExtensionCatalog(
         (repository.isEmpty() || entry.repositoryUrl == repository) &&
             (language.isEmpty() || entry.language == language) &&
             (entry.name.contains(search, true) || entry.packageName.contains(search, true)) &&
-            when (filter) {
-                "已导入" -> entry.state != "available"
-                "可更新" -> entry.updateAvailable
-                "下载中" -> downloads[entry.packageName]?.running == true
-                else -> true
-            }
+            extensionStatus(entry, downloads[entry.packageName]) == filter
     }.sortedWith(compareBy<ExtensionSummary> { it.name.lowercase() }.thenBy { it.id })
     val secondary = Color(NgTheme.colors.onSurfaceVariant)
     Column(Modifier.fillMaxSize()) {
@@ -239,15 +253,45 @@ internal fun NgExtensionCatalog(
             )
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("全部", "已导入", "可更新", "下载中").forEach { tab ->
-                FilterChip(selected = filter == tab, onClick = { filter = tab }, colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = Color(NgTheme.colors.selectedContainer),
-                    selectedLabelColor = Color(NgTheme.colors.onSurface),
-                    labelColor = secondary,
-                ), label = {
-                    val count = downloads.values.count { it.running }
-                    Text(if (tab == "下载中" && count > 0) "$tab $count" else tab, fontSize = 13.sp)
-                })
+            NgExtensionStatus.values().forEach { tab ->
+                val runningCount = downloads.values.count { it.running }
+                Box {
+                    FilterChip(
+                        selected = filter == tab,
+                        onClick = { filter = tab },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(NgTheme.colors.selectedContainer),
+                            selectedLabelColor = Color(NgTheme.colors.onSurface),
+                            labelColor = secondary,
+                        ),
+                        label = {
+                            if (tab == NgExtensionStatus.DOWNLOADING && runningCount > 0) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text(tab.label, fontSize = 13.sp)
+                                    CatalogCountBadge(runningCount)
+                                }
+                            } else {
+                                Text(tab.label, fontSize = 13.sp)
+                            }
+                        },
+                    )
+                    if (tab == NgExtensionStatus.UPDATE_AVAILABLE && matchingUpdates.isNotEmpty()) {
+                        CatalogCountBadge(
+                            count = matchingUpdates.size,
+                            modifier = Modifier.align(Alignment.BottomEnd).offset(x = 4.dp, y = (-4).dp),
+                        )
+                    }
+                }
+            }
+        }
+        if (filter == NgExtensionStatus.UPDATE_AVAILABLE && matchingUpdates.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.End) {
+                NgFormActionButton(
+                    text = if (matchingUpdates.size == 1) "一键更新" else "一键更新 ${matchingUpdates.size} 项",
+                    onClick = { onUpdateAll(matchingUpdates) },
+                    variant = NgButtonVariant.TONAL,
+                    minimumWidth = 112.dp,
+                )
             }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -361,6 +405,20 @@ private fun CatalogSelector(
 }
 
 @Composable
+private fun CatalogCountBadge(count: Int, modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = Color(NgTheme.colors.errorContainer),
+        contentColor = Color(NgTheme.colors.onErrorContainer),
+        modifier = modifier.defaultMinSize(minWidth = 18.dp, minHeight = 18.dp),
+    ) {
+        Box(Modifier.padding(horizontal = 5.dp), contentAlignment = Alignment.Center) {
+            Text(count.toString(), fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
 internal fun NgExtensionListItem(
     entry: ExtensionSummary,
     download: ExtensionDownload?,
@@ -373,35 +431,47 @@ internal fun NgExtensionListItem(
 ) {
     val secondary = Color(NgTheme.colors.onSurfaceVariant)
     val running = download?.running == true
-    val retry = download?.progress?.state in setOf("error", "cancelled")
+    val status = extensionStatus(entry, download)
+    val retry = status in setOf(NgExtensionStatus.DOWNLOAD_FAILED, NgExtensionStatus.DOWNLOAD_ERROR) ||
+        download?.progress?.state == "cancelled"
     val needsTrust = entry.state == "notLoaded" && entry.fingerprint != null
     var menu by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onCheckWebsite, enabled = !checkingWebsite, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    Icons.Rounded.Language,
+                    contentDescription = "在 WebView 中检查 ${entry.name}",
+                    tint = secondary,
+                )
+            }
             ExtensionIcon(entry)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Text("v${entry.version} · ${languageLabel(entry.language)}", maxLines = 1, overflow = TextOverflow.Ellipsis, color = secondary, fontSize = 12.sp)
                 Text(
-                    when {
-                        running -> progressText(checkNotNull(download).progress)
-                        download?.progress?.state == "error" -> "下载失败，可重试"
-                        download?.progress?.state == "cancelled" -> "已取消"
-                        entry.state == "loaded" -> if (entry.updateAvailable) "有可用更新" else "已加载"
-                        entry.state == "notLoaded" -> entry.reason ?: "未加载"
-                        download?.progress?.state == "installed" -> "已导入，正在加载…"
-                        else -> "可下载"
+                    when (status) {
+                        NgExtensionStatus.DOWNLOADING -> progressText(checkNotNull(download).progress)
+                        NgExtensionStatus.DOWNLOAD_FAILED -> "下载失败，可重试"
+                        NgExtensionStatus.DOWNLOAD_ERROR -> "下载错误，可重试"
+                        NgExtensionStatus.UPDATE_AVAILABLE -> "有可用更新"
+                        NgExtensionStatus.DOWNLOADED -> when {
+                            entry.state == "loaded" -> "已加载"
+                            entry.state == "notLoaded" -> entry.reason ?: "下载完成"
+                            else -> "下载完成"
+                        }
+                        NgExtensionStatus.NOT_DOWNLOADED -> if (download?.progress?.state == "cancelled") "已取消" else "未下载"
                     }, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = if (download?.progress?.state == "error") Color(NgTheme.colors.error) else secondary, fontSize = 12.sp,
                 )
             }
-            if (running || retry || needsTrust || entry.state == "available" || entry.updateAvailable) {
+            if (running || retry || needsTrust || status == NgExtensionStatus.NOT_DOWNLOADED || status == NgExtensionStatus.UPDATE_AVAILABLE) {
                 NgFormActionButton(
                     text = when {
                         running -> "取消"
                         retry -> "重试"
                         needsTrust -> "信任"
-                        entry.updateAvailable -> "更新"
+                        status == NgExtensionStatus.UPDATE_AVAILABLE -> "更新"
                         else -> "下载"
                     },
                     onClick = {
@@ -416,13 +486,6 @@ internal fun NgExtensionListItem(
                     minimumWidth = 68.dp,
                 )
             }
-            IconButton(onClick = onCheckWebsite, enabled = !checkingWebsite, modifier = Modifier.size(40.dp)) {
-                Icon(
-                    Icons.Rounded.Language,
-                    contentDescription = "在 WebView 中检查 ${entry.name}",
-                    tint = secondary,
-                )
-            }
             if (entry.state != "available" && !running) {
                 Box {
                     IconButton(onClick = { menu = true }, modifier = Modifier.width(36.dp)) { Icon(painterResource(R.drawable.ic_more_vert), "扩展操作", tint = secondary) }
@@ -435,13 +498,13 @@ internal fun NgExtensionListItem(
         if (running) {
             val progress = checkNotNull(download).progress
             if (progress.state == "downloading" && progress.percent > 0) {
-                LinearProgressIndicator(progress = { progress.percent.coerceIn(0, 100) / 100f }, modifier = Modifier.fillMaxWidth().padding(start = 56.dp, bottom = 10.dp), color = Color(NgTheme.colors.primary), trackColor = Color(NgTheme.colors.surfaceContainerHigh))
+                LinearProgressIndicator(progress = { progress.percent.coerceIn(0, 100) / 100f }, modifier = Modifier.fillMaxWidth().padding(start = 96.dp, bottom = 10.dp), color = Color(NgTheme.colors.primary), trackColor = Color(NgTheme.colors.surfaceContainerHigh))
             } else {
-                LinearProgressIndicator(Modifier.fillMaxWidth().padding(start = 56.dp, bottom = 10.dp), color = Color(NgTheme.colors.primary), trackColor = Color(NgTheme.colors.surfaceContainerHigh))
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(start = 96.dp, bottom = 10.dp), color = Color(NgTheme.colors.primary), trackColor = Color(NgTheme.colors.surfaceContainerHigh))
             }
         }
-        if (download?.progress?.state == "error") Text(download.progress.error ?: "下载失败", Modifier.padding(start = 56.dp, bottom = 8.dp), color = Color(NgTheme.colors.error), style = MaterialTheme.typography.bodySmall)
-        HorizontalDivider(Modifier.padding(start = 56.dp), color = Color(NgTheme.colors.outlineVariant))
+        if (download?.progress?.state == "error") Text(download.progress.error ?: "下载失败", Modifier.padding(start = 96.dp, bottom = 8.dp), color = Color(NgTheme.colors.error), style = MaterialTheme.typography.bodySmall)
+        HorizontalDivider(Modifier.padding(start = 96.dp), color = Color(NgTheme.colors.outlineVariant))
     }
 }
 
@@ -469,7 +532,10 @@ private fun languageLabel(language: String): String = when (language.lowercase()
     "ko" -> "韩语"
     "all", "multi" -> "多语言"
     "" -> "未知语言"
-    else -> language.uppercase()
+    else -> Locale.forLanguageTag(language.replace('_', '-'))
+        .getDisplayName(Locale.SIMPLIFIED_CHINESE)
+        .takeIf { it.isNotBlank() && !it.equals(language, ignoreCase = true) }
+        ?: "未知语言（${language.uppercase()}）"
 }
 
 private fun progressText(progress: InstallProgress): String = when (progress.state) {
