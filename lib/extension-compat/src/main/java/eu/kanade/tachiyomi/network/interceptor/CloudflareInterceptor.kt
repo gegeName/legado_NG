@@ -17,7 +17,11 @@ import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
+import okhttp3.Response
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.io.IOException
 
 class CloudflareInterceptor(
     private val context: Context,
@@ -39,31 +43,58 @@ class CloudflareInterceptor(
         cookieResolver.remove(request.url, COOKIE_NAMES, 0)
     }
 
+    override fun onChallengeResponse(response: Response, retried: Boolean) {
+        // BridgeInterceptor replaces response.request with the pre-bridge request.
+        val request = ExtensionCookieInterceptor.transportRequest(response.request) ?: response.request
+        val stored = oldClearance(request)
+        val sent = request.headers("Cookie").firstNotNullOfOrNull { clearanceValue(it) }
+        CompatLog.put("扩展验证 ${if (retried) "重试" else "挑战"}: ${request.url.host} HTTP ${response.code}; " +
+            "已存凭据=${!stored.isNullOrEmpty()}, 请求携带凭据=${!sent.isNullOrEmpty()}, 凭据一致=${stored != null && stored == sent}; " +
+            "协议=${response.protocol}")
+    }
+
     override fun solve(request: Request, oldClearance: String?) {
-        resolveWithWebView(request, oldClearance)
+        solve(request, oldClearance) { false }
+    }
+
+    override fun solve(request: Request, oldClearance: String?, isCancelled: () -> Boolean) {
+        try {
+            resolveWithWebView(request, oldClearance, isCancelled)
+        } catch (e: CloudflareBypassException) {
+            if (isCancelled()) throw IOException("Canceled")
+            // Keep the request UA; let the shared WebView CookieManager supply current cookies.
+            val headers = parseHeaders(request.headers).filterKeys { !it.equals("Cookie", true) }
+            if (!ExtensionServices.require().verifyChallenge(challengeUrl(request), headers, oldClearance, isCancelled)) {
+                throw e
+            }
+        }
+        if (isCancelled()) throw IOException("Canceled")
         syncCookiesToHostStore(request.url)
     }
 
+    private fun challengeUrl(request: Request): String = if (request.method == "GET") {
+        request.url.toString()
+    } else {
+        request.url.newBuilder().encodedPath("/").query(null).fragment(null).build().toString()
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
-    private fun resolveWithWebView(originalRequest: Request, oldClearance: String?) {
+    private fun resolveWithWebView(originalRequest: Request, oldClearance: String?, isCancelled: () -> Boolean) {
 
         val latch = CountDownLatch(1)
 
         var webview: WebView? = null
 
-        var cloudflareBypassed = false
-        var isWebViewOutdated = false
+        val cloudflareBypassed = AtomicBoolean(false)
+        val abandoned = AtomicBoolean(false)
 
         val origRequestUrl = originalRequest.url.toString()
 
-        val challengeUrl = if (originalRequest.method == "GET") {
-            origRequestUrl
-        } else {
-            originalRequest.url.newBuilder().encodedPath("/").query(null).fragment(null).build().toString()
-        }
+        val challengeUrl = challengeUrl(originalRequest)
         val headers = parseHeaders(originalRequest.headers)
 
         executor.execute {
+            if (abandoned.get()) return@execute
             webview = createWebView(originalRequest)
 
             webview.addJavascriptInterface(
@@ -87,7 +118,7 @@ class CloudflareInterceptor(
                     }
 
                     if (isCloudFlareBypassed()) {
-                        cloudflareBypassed = true
+                        cloudflareBypassed.set(true)
                         latch.countDown()
                         return
                     }
@@ -124,27 +155,24 @@ class CloudflareInterceptor(
             webview.loadUrl(challengeUrl, headers)
         }
 
-        latch.awaitChallengeWindow()
-
-        executor.execute {
-            if (!cloudflareBypassed) {
-                isWebViewOutdated = webview?.let { ExtensionServices.require().isWebViewOutdated(it) } == true
+        try {
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(CHALLENGE_TIMEOUT_MS)
+            while (!latch.await(250, TimeUnit.MILLISECONDS)) {
+                if (isCancelled()) throw IOException("Canceled")
+                if (System.nanoTime() >= deadline) break
             }
-
-            webview?.run {
-                stopLoading()
-                destroy()
+        } finally {
+            abandoned.set(true)
+            executor.execute {
+                webview?.run {
+                    stopLoading()
+                    destroy()
+                }
             }
         }
 
-        if (!cloudflareBypassed) {
-            if (isWebViewOutdated) {
-
-                CompatLog.put("系统 WebView 版本过低, 可能无法通过 Cloudflare 挑战")
-            } else {
-                CompatLog.put("挑战求解放弃: ${CHALLENGE_TIMEOUT_MS / 1000} 秒求解窗耗尽\n$challengeUrl")
-            }
-
+        if (!cloudflareBypassed.get()) {
+            CompatLog.put("自动验证未完成，尝试打开宿主验证页面\n$challengeUrl")
             throw CloudflareBypassException()
         }
     }

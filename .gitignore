@@ -60,26 +60,40 @@ __pycache__/
 /app/src/test/
 
 # Keep the voice removal regression test reviewable.
-!/app/src/test/
+/app/src/test/
 /app/src/test/**
-!/app/src/test/**/
-!/app/src/test/java/io/legado/app/help/tts/TtsVoiceRemovalTest.kt
+/app/src/test/**/
+/app/src/test/java/io/legado/app/help/tts/TtsVoiceRemovalTest.kt
 /app/src/test/java/io/legado/app/
 /lib/video-support/src/test/
-!/app/src/test/java/io/legado/regression/NetworkUtilsDataUrlTest.kt
-!/app/src/test/java/io/legado/regression/VideoRuleCompatibilityTest.kt
+/app/src/test/java/io/legado/regression/NetworkUtilsDataUrlTest.kt
+/app/src/test/java/io/legado/regression/VideoRuleCompatibilityTest.kt
 /lib/source-tvbox/src/test/
-!/lib/source-tvbox/src/test/
+
+/lib/source-tvbox/src/test/
 /lib/source-tvbox/src/test/**
-!/lib/source-tvbox/src/test/**/
-!/lib/source-tvbox/src/test/java/io/legado/features/tvbox/WebVideoResolverTest.kt
-!/lib/source-tvbox/src/test/java/io/legado/features/tvbox/LegadoVideoResolverTest.kt
+/lib/source-tvbox/src/test/**/
+/lib/source-tvbox/src/test/java/io/legado/features/tvbox/WebVideoResolverTest.kt
+/lib/source-tvbox/src/test/java/io/legado/features/tvbox/LegadoVideoResolverTest.kt
 /lib/source-tvbox/src/test/
 
 # Keep the video parity fixtures reviewable.
-!/lib/source-tvbox/src/test/
-/lib/source-tvbox/src/test/**
-!/lib/source-tvbox/src/test/**/
-!/lib/source-tvbox/src/test/java/io/legado/features/tvbox/WebVideoResolverTest.kt
-!/lib/source-tvbox/src/test/java/io/legado/features/tvbox/LegadoVideoResolverTest.kt
 /lib/source-tvbox/src/test/
+/lib/source-tvbox/src/test/**
+/lib/source-tvbox/src/test/**/
+/lib/source-tvbox/src/test/java/io/legado/features/tvbox/WebVideoResolverTest.kt
+/lib/source-tvbox/src/test/java/io/legado/features/tvbox/LegadoVideoResolverTest.kt
+/lib/source-tvbox/src/test/
+/lib/extension-compat/src/test/
+/lib/legado-ng-adapter/src/test/
+
+# Keep extension challenge regression tests reviewable after blanket test ignores.
+/lib/extension-compat/src/test/
+/lib/extension-compat/src/test/**
+/lib/extension-compat/src/test/**/
+/lib/extension-compat/src/test/java/io/legado/features/extensioncompat/ChallengeInterceptorTest.kt
+/lib/extension-compat/src/test/java/io/legado/features/extensioncompat/ExtensionCookieInterceptorTest.kt
+/lib/legado-ng-adapter/src/test/
+/lib/legado-ng-adapter/src/test/**
+/lib/legado-ng-adapter/src/test/**/
+/lib/legado-ng-adapter/src/test/kotlin/io/legado/features/adapter/ExtensionChallengeSessionTest.kt

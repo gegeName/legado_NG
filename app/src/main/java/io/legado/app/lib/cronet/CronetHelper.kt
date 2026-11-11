@@ -13,6 +13,7 @@ import io.legado.app.help.http.okHttpClient
 import io.legado.app.model.analyzeRule.AnalyzeUrl.Companion.customIp
 import io.legado.app.utils.DebugLog
 import io.legado.app.utils.externalCache
+import io.legado.features.adapter.ExtensionNetwork
 import okhttp3.Headers
 import okhttp3.MediaType
 import okhttp3.Request
@@ -74,15 +75,16 @@ val options by lazy {
 }
 
 fun buildRequest(request: Request, callback: UrlRequest.Callback): UrlRequest? {
-    val url = request.url.toString()
-    val headers: Headers = request.headers
-    val requestBody = request.body
+    val prepared = ExtensionNetwork.prepareTransportRequest(request)
+    val url = prepared.url.toString()
+    val headers: Headers = prepared.headers
+    val requestBody = prepared.body
     return cronetEngine?.newUrlRequestBuilder(
         customHost(url),
         callback,
         okHttpClient.dispatcher.executorService
     )?.apply {
-        setHttpMethod(request.method)//设置
+        setHttpMethod(prepared.method)//设置
         allowDirectExecutor()
         headers.forEachIndexed { index, _ ->
             if (headers.name(index) == cookieJarHeader) return@forEachIndexed

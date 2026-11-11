@@ -2,6 +2,7 @@ package io.legado.app.integration.source
 
 import android.app.Application
 import android.content.Context
+import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.webkit.WebViewCompat
 import io.legado.app.constant.AppLog
@@ -22,6 +23,13 @@ object NgExtensionBootstrap {
     @Synchronized fun start(application: Application) {
         if (started) return
         val prefs = application.getSharedPreferences("feature_modules", Context.MODE_PRIVATE)
+        // Challenge cookies are tied to the browser identity. NG's desktop Cronet UA can
+        // advertise an unrelated Chrome version; extensions verify in Android WebView.
+        val extensionUserAgent = runCatching {
+            WebSettings.getDefaultUserAgent(application)
+                .replace("; wv", "")
+                .replace(" Version/4.0", "")
+        }.getOrElse { AppConfig.userAgent }
         val featureConfig = object : ConfigPort {
             override fun get(namespace: String, key: String) = prefs.getString("$namespace:$key", null)
             override fun put(namespace: String, key: String, value: String?) { prefs.edit().putString("$namespace:$key", value).apply() }
@@ -43,7 +51,7 @@ object NgExtensionBootstrap {
                 override fun get(namespace: String, key: String): String? = prefs.getString("$namespace:$key", null)
                 override fun put(namespace: String, key: String, value: String?) { prefs.edit().putString("$namespace:$key", value).apply() }
             }
-            override fun userAgent() = AppConfig.userAgent
+            override fun userAgent() = extensionUserAgent
             override fun log(message: String, error: Throwable?) { AppLog.put(message, error) }
             override fun supportsWebView(context: Context) = WebViewCompat.getCurrentWebViewPackage(context) != null
             override fun configureWebView(view: WebView, userAgent: String) {
@@ -51,6 +59,8 @@ object NgExtensionBootstrap {
             }
             override fun isWebViewOutdated(view: WebView) = false
             override fun syncCookies(url: String, cookie: String) { CookieStore.replaceCookie(url, cookie) }
+            override fun verifyChallenge(url: String, headers: Map<String, String>, oldClearance: String?, isCancelled: () -> Boolean) =
+                NgExtensionVerification.verify(application, url, headers, oldClearance, isCancelled)
         })
         started = true
         scope.launch {

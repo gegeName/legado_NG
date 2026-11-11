@@ -28,6 +28,7 @@ import io.legado.app.databinding.ActivityWebViewBinding
 import io.legado.app.help.http.CookieStore
 import io.legado.app.help.http.BookSourceCookieStore
 import io.legado.app.help.source.SourceVerificationHelp
+import io.legado.app.integration.source.NgExtensionVerification
 import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.dialogs.selector
@@ -195,6 +196,11 @@ class WebViewActivity : VMBaseActivity<ActivityWebViewBinding, WebViewModel>() {
             R.id.menu_open_in_browser -> openUrl(viewModel.baseUrl)
             R.id.menu_copy_url -> sendToClip(viewModel.baseUrl)
             R.id.menu_ok -> {
+                if (NgExtensionVerification.isVerification(intent)) {
+                    if (NgExtensionVerification.complete(intent)) finish()
+                    else toastOnUi("请先完成网页中的人机验证")
+                    return true
+                }
                 if (viewModel.sourceVerificationEnable) {
                     viewModel.saveVerificationResult(currentWebView) {
                         finish()
@@ -256,7 +262,9 @@ class WebViewActivity : VMBaseActivity<ActivityWebViewBinding, WebViewModel>() {
             }
         }
         val sourceCookieStore = BookSourceCookieStore.forBookSource(viewModel.source)
-        if (sourceCookieStore != null) {
+        if (NgExtensionVerification.isVerification(intent)) {
+            NgExtensionVerification.attach(this, currentWebView)
+        } else if (sourceCookieStore != null) {
             sourceCookieStore.applyToWebView(
                 cookieUrl = url,
                 targetUrl = url
@@ -314,7 +322,8 @@ class WebViewActivity : VMBaseActivity<ActivityWebViewBinding, WebViewModel>() {
     }
 
     override fun finish() {
-        SourceVerificationHelp.checkResult(viewModel.sourceOrigin)
+        if (NgExtensionVerification.isVerification(intent)) NgExtensionVerification.finish(intent)
+        else SourceVerificationHelp.checkResult(viewModel.sourceOrigin)
         super.finish()
     }
 

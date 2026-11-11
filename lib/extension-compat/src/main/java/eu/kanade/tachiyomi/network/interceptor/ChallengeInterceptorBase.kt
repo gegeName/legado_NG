@@ -29,37 +29,46 @@ abstract class ChallengeInterceptorBase : Interceptor {
 
     protected abstract fun solve(request: Request, oldClearance: String?)
 
+    protected open fun solve(request: Request, oldClearance: String?, isCancelled: () -> Boolean) =
+        solve(request, oldClearance)
+
     protected open fun canCarrySolvedCookies(request: Request): Boolean =
         request.header(cookieJarHeader) != null
 
+    protected open fun onChallengeResponse(response: Response, retried: Boolean) {}
+
     final override fun intercept(chain: Interceptor.Chain): Response {
+        val challengeStart = System.nanoTime() / 1_000_000
         val request = chain.request()
         val response = chain.proceed(request)
         if (!isChallenge(response)) {
             return response
         }
+        onChallengeResponse(response, false)
+        val challengeRequest = response.request
         if (!isEngineAvailable()) {
             onEngineUnavailable()
             return response
         }
 
-        if (!canCarrySolvedCookies(request)) {
+        if (!canCarrySolvedCookies(challengeRequest)) {
             CompatLog.put("请求未启用 CookieJar, 解出的挑战 cookie 带不上, 跳过求解")
             return response
         }
         prepareEngine()
 
-        val state = hostStates.computeIfAbsent(request.url.host) { HostChallengeState() }
-
-        val challengeStart = System.nanoTime() / 1_000_000
+        val state = hostStates.computeIfAbsent(challengeRequest.url.host) { HostChallengeState() }
 
         response.close()
         try {
 
-            if (!state.lock.tryLock(CHALLENGE_WAIT_MS, TimeUnit.MILLISECONDS)) {
-                throw CloudflareBypassException()
+            val waitDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(CHALLENGE_WAIT_MS)
+            while (!state.lock.tryLock(250, TimeUnit.MILLISECONDS)) {
+                if (chain.call().isCanceled()) throw IOException("Canceled")
+                if (System.nanoTime() >= waitDeadline) throw CloudflareBypassException()
             }
             try {
+                if (chain.call().isCanceled()) throw IOException("Canceled")
                 if (state.lastAttemptEnd >= challengeStart) {
 
                     
@@ -67,10 +76,11 @@ abstract class ChallengeInterceptorBase : Interceptor {
                         throw CloudflareBypassException()
                     }
                 } else {
-                    val old = oldClearance(request)
-                    clearClearance(request)
+                    state.lastSolveOk = false
+                    val old = oldClearance(challengeRequest)
+                    clearClearance(challengeRequest)
                     try {
-                        solve(request, old)
+                        solve(challengeRequest, old) { chain.call().isCanceled() }
                         state.lastSolveOk = true
                     } finally {
                         state.lastAttemptEnd = System.nanoTime() / 1_000_000
@@ -80,19 +90,28 @@ abstract class ChallengeInterceptorBase : Interceptor {
                 state.lock.unlock()
             }
 
-            return chain.proceed(request)
+            if (chain.call().isCanceled()) throw IOException("Canceled")
+            val retried = chain.proceed(request)
+            onChallengeResponse(retried, true)
+            if (isChallenge(retried)) {
+                retried.close()
+                throw CloudflareBypassException()
+            }
+            return retried
         }
 
         catch (e: CloudflareBypassException) {
             throw IOException(CLOUDFLARE_BYPASS_FAILURE_MESSAGE, e)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw IOException("Canceled", e)
         } catch (e: Exception) {
             throw IOException(e)
         }
     }
 
     private fun isChallenge(response: Response): Boolean =
-        response.header("cf-mitigated") == "challenge" &&
-                response.header("Server") in SERVER_CHECK
+        response.header("cf-mitigated").equals("challenge", ignoreCase = true)
 
     protected fun clearanceValue(cookieStr: String): String? {
         cookieStr.split(';').forEach { pair ->
@@ -118,11 +137,10 @@ abstract class ChallengeInterceptorBase : Interceptor {
 
 const val CHALLENGE_TIMEOUT_MS = 30_000L
 
-private const val CHALLENGE_WAIT_MS = CHALLENGE_TIMEOUT_MS
+private const val CHALLENGE_WAIT_MS = CHALLENGE_TIMEOUT_MS + 185_000L
 
 const val CHALLENGE_CALL_TIMEOUT_MS = CHALLENGE_TIMEOUT_MS * 2 + 5_000L
 
-private val SERVER_CHECK = arrayOf("cloudflare-nginx", "cloudflare")
 const val COOKIE_CLEARANCE = "cf_clearance"
 
 private const val CLOUDFLARE_BYPASS_FAILURE_MESSAGE = "Failed to bypass Cloudflare challenge"

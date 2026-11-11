@@ -15,6 +15,7 @@ import io.legado.app.help.http.newCallResponseBody
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.help.source.SourceHelp
 import io.legado.app.help.source.SourceVerificationHelp
+import io.legado.app.integration.source.NgExtensionVerification
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.utils.ACache
 import io.legado.app.utils.FileDoc
@@ -50,6 +51,7 @@ class WebViewModel(application: Application) : BaseViewModel(application) {
                 ?: throw NoStackTraceException("url不能为空")
             sourceName = intent.getStringExtra("sourceName") ?: ""
             sourceOrigin = intent.getStringExtra("sourceOrigin") ?: ""
+            if (NgExtensionVerification.prepare(intent, this@WebViewModel)) return@execute
             sourceType = intent.getIntExtra("sourceType", SourceType.book)
             sourceVerificationEnable = intent.getBooleanExtra("sourceVerificationEnable", false)
             refetchAfterSuccess = intent.getBooleanExtra("refetchAfterSuccess", true)

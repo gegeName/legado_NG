@@ -75,6 +75,18 @@ NG OTHER 备份分类新增加密 `featureModules.json.aes`。恢复前校验整
 
 ## 未完成验收
 
+### 2026-11-12 扩展源人机验证
+
+- Mihon/Aniyomi 的共享网络兼容层在后台 Cloudflare 验证失败后，通过宿主端口打开 NG 的 `WebViewActivity`，保留挑战 URL、请求头与 User-Agent；POST 在网站首页完成验证后重放原请求。
+- 可见页面直接使用扩展共享的 WebView CookieManager，不注入 NG 中可能过期的 Cookie。收到不同于旧值的 `cf_clearance` 后，先 flush 并将 Cookie 同步回 NG，再唤醒原请求、结束页面，重试原请求一次。
+- 补齐 `cloudflareClient` 的挑战拦截器；检测不再额外要求 `Server` 响应头。重定向时按实际被挑战的地址验证，再重试原入口请求。
+- 同站并发请求复用验证结果，取消、关闭、三分钟超时结束等待，迟到的页面回调不能让已取消的会话成功。真实站点与设备上的 Cloudflare 交互仍待验收；上述接入不承诺站点一定放行。
+- 本地验证 `build/extension-challenge-check.log`：两个模块共 27 项测试通过，其中新增 14 项覆盖新旧 Cookie、取消/超时/迟到回调、原 POST/UA 重试、重定向、并发去重及重复挑战失败；`:app:compileAppDebugKotlin`、15 模块边界及 diff 检查通过。编译继续排除既有 `verifyNgDesignSystem` 检查；未打包、安装或进行真实站点的设备验证。
+- Cookie 返回修复：NG 的 Cronet 在应用拦截器内直接发送请求，绕过 OkHttp BridgeInterceptor，原接入仅设置 CookieJar，无法覆盖这条传输路径；验证会话此前也在 Cookie 同步前唤醒原请求。现在先完成同步，再通过扩展请求上下文在 Cronet 每次实际发送前读取最新 Cookie，同时写回重定向/最终响应的 Cookie；移除扩展请求的 NG CookieJar 标记，避免旧存储合并覆盖新值。普通 OkHttp 使用原生 Cookie 处理，重定向按目标来源和路径选择 Cookie。
+- 修复验证 `build/extension-cookie-handoff-check.log`：两个模块共 37 项测试通过，本次增加 10 项，包括模拟 Cronet 短路传输下验证后重试和后续请求不再重复挑战、旧 Cookie 覆盖、重定向/域/路径隔离、响应 Cookie 持续复用、同步先于唤醒及同步失败不发布；应用 Kotlin 编译、15 模块边界和 diff 检查通过。继续排除既有 `verifyNgDesignSystem`，未打包安装或进行真实 Cronet/站点的设备验收。
+- 2026-11-12 真机继续排查“18漫画 (zh)”：旧安装包缺少上述传输修复；覆盖安装后仍复现。网络层确认新 `cf_clearance` 已保存且实际携带，仍返回 403。设备 WebView 为 Chromium 156，继承的 NG 桌面 UA 却声明 Chrome 128；扩展默认 UA 改用设备 WebView 身份，并继续保留扩展显式 UA。用户手动验证后自动返回，两个等待请求均为 HTTP 200，热门解析出 18 条；继续请求热门第 1/2 页和最新第 1 页，各返回 18 条且不再打开验证。证据为 `build/extension-diagnostics/device-webview-identity.json`、`device-reuse-check.json`。这是该设备/该来源的实测，不代表全部 Mihon/Aniyomi 或其他网络环境验收。
+- 最终验证 `build/extension-diagnostics/final-check.log`：两个模块共 39 项测试通过，补充该扩展将挑战拦截器移至 Cookie 上下文之后的重试，以及真实本地 HTTP 传输与 Bridge 回填前后凭据观察；15 模块边界及 `assembleAppDebug` 通过。最终调试 APK 已保留数据覆盖安装到连接设备；继续排除既有 `verifyNgDesignSystem`。
+
 ### 2026-11-10 仓库管理补齐
 
 - Mihon/Aniyomi 扩展管理增加仓库列表、地址、逐仓库刷新结果与自定义仓库移除；内置仓库标识并保留。支持 `repo.json` 转同目录 JSON 索引，添加时先验证元信息和索引，失败不保存。部分仓库刷新失败时保留其上次索引。

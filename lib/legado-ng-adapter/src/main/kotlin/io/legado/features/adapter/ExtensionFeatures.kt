@@ -29,6 +29,12 @@ interface ExtensionFeatureHost {
     fun configureWebView(view: WebView, userAgent: String)
     fun isWebViewOutdated(view: WebView): Boolean
     fun syncCookies(url: String, cookie: String)
+    fun verifyChallenge(
+        url: String,
+        headers: Map<String, String>,
+        oldClearance: String?,
+        isCancelled: () -> Boolean,
+    ): Boolean = false
 }
 
 object ExtensionFeatures : AutoCloseable {
@@ -48,6 +54,8 @@ object ExtensionFeatures : AutoCloseable {
             override fun configureWebView(view: WebView, userAgent: String) = host.configureWebView(view, userAgent)
             override fun isWebViewOutdated(view: WebView) = host.isWebViewOutdated(view)
             override fun syncCookies(url: String, cookie: String) = host.syncCookies(url, cookie)
+            override fun verifyChallenge(url: String, headers: Map<String, String>, oldClearance: String?, isCancelled: () -> Boolean) =
+                host.verifyChallenge(url, headers, oldClearance, isCancelled)
         })
         registerExtensionCompat(host.application)
         ExtensionHostProviders.register(AndroidExtensionHost.get(host.application))

@@ -45,6 +45,7 @@ fun registerExtensionCompat(application: Application) {
             ): List<Interceptor> = listOf(
                 UncaughtExceptionInterceptor(),
                 UserAgentInterceptor(defaultUserAgent),
+                CloudflareInterceptor(context, cookieJar, defaultUserAgent),
             )
         }
     }

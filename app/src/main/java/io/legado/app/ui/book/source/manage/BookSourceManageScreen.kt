@@ -6,7 +6,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -445,8 +444,18 @@ private fun BookSourceManageTopBar(
                 R.string.book_source_add_javascript,
                 R.drawable.ic_code,
             ),
-            NgExpandableActionMenuItem(EXTENSIONS_ITEM_ID, 0, R.drawable.ic_code, title = "Mihon / Aniyomi 扩展"),
-            NgExpandableActionMenuItem(TVBOX_ITEM_ID, 0, R.drawable.ic_video_portrait, title = "TVBox 配置"),
+            NgExpandableActionMenuItem(
+                EXTENSIONS_ITEM_ID,
+                0,
+                R.drawable.ic_ai_skill_puzzle,
+                title = "Mihon / Aniyomi 扩展",
+            ),
+            NgExpandableActionMenuItem(
+                TVBOX_ITEM_ID,
+                0,
+                R.drawable.ic_bookshelf_dock_video,
+                title = "TVBox 配置",
+            ),
             NgExpandableActionMenuItem(
                 R.id.menu_import_local,
                 R.string.import_local,
@@ -461,12 +470,12 @@ private fun BookSourceManageTopBar(
             NgExpandableActionMenuItem(
                 R.id.menu_import_qr,
                 R.string.import_by_qr_code,
-                R.drawable.ic_scan,
+                R.drawable.ic_qr_code,
             ),
             NgExpandableActionMenuItem(
                 R.id.menu_group_manage,
                 R.string.group_manage,
-                R.drawable.ic_settings,
+                R.drawable.ic_bookshelf_manage_filter_group,
                 dividerBefore = true,
             ),
             NgExpandableActionMenuItem(
@@ -704,7 +713,7 @@ private fun BookSourceManagePanel(
     val panelStyle = NgGlassDefaults.bookDetailStyle(
         containerColor = colorResource(R.color.ng_surface_card)
     )
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 14.dp, top = 4.dp, end = 14.dp, bottom = 8.dp)

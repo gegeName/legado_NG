@@ -46,6 +46,10 @@
 | 扩展接入宿主文件 | 职责与默认行为 | 回归 |
 | --- | --- | --- |
 | `app/src/main/java/io/legado/app/App.kt` | 主进程初始化本地扩展运行时；沙盒进程跳过；启动不刷新仓库 | 应用 Kotlin 编译 |
+| `app/src/main/java/io/legado/app/ui/browser/WebViewModel.kt` | 扩展验证会话直接使用挑战 URL/请求头，普通 NG 网页沿用原规则解析 | 验证会话/应用 Kotlin 编译 |
+| `app/src/main/java/io/legado/app/ui/browser/WebViewActivity.kt` | 委托 integration 复用可见验证页、Cookie 与结束通知；普通书源验证沿用原流程 | 取消/超时/新 clearance/应用 Kotlin 编译 |
+| `app/src/main/java/io/legado/app/lib/cronet/CronetHelper.kt` | 发出每个带扩展 Cookie 上下文的请求前，委托模块按当前 URL 附加 Cookie；普通请求原样返回 | 短路传输/域与路径隔离 |
+| `app/src/main/java/io/legado/app/lib/cronet/AbsCallBack.kt` | 扩展请求的重定向和最终响应 Cookie 委托回写共享 Jar；普通 NG 请求沿用原 Cookie 流程 | 响应 Cookie/后续请求复用 |
 | `app/src/main/java/io/legado/app/model/webBook/WebBook.kt` | 仅扩展协议源委托搜索/发现/详情/目录/正文 | 普通源原分支、来源类型隔离 |
 | `app/src/main/java/io/legado/app/help/glide/LegadoGlideModule.kt` | 注册扩展图片租约加载器 | 普通 URL 仍走原加载器 |
 | `app/src/main/java/io/legado/app/help/glide/ImageLoader.kt` | 扩展图片协议交给已注册的加载器 | 普通文件、HTTP、content URI 原分支 |

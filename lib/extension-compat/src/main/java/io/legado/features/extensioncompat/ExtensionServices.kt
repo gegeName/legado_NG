@@ -15,6 +15,13 @@ interface ExtensionPlatform {
     fun configureWebView(view: WebView, userAgent: String)
     fun isWebViewOutdated(view: WebView): Boolean
     fun syncCookies(url: String, cookie: String)
+    /** Blocks the calling worker until the user finishes or cancels the visible challenge. */
+    fun verifyChallenge(
+        url: String,
+        headers: Map<String, String>,
+        oldClearance: String?,
+        isCancelled: () -> Boolean,
+    ): Boolean = false
 }
 
 object ExtensionServices {

@@ -8,6 +8,7 @@ import io.legado.app.help.http.okHttpClient
 import io.legado.app.utils.DebugLog
 import io.legado.app.utils.asIOException
 import io.legado.app.utils.splitNotBlank
+import io.legado.features.adapter.ExtensionNetwork
 import kotlinx.coroutines.delay
 import okhttp3.Call
 import okhttp3.Callback
@@ -123,6 +124,7 @@ abstract class AbsCallBack(
             onError(IOException("Too many redirect"))
         } else {
             val response = toResponse(originalRequest, info, urlResponseInfoChain)
+            ExtensionNetwork.saveTransportResponse(response)
             if (enableCookieJar) {
                 CookieManager.saveResponse(response)
             }
@@ -145,6 +147,7 @@ abstract class AbsCallBack(
             return
         }
 
+        ExtensionNetwork.saveTransportResponse(response)
         if (enableCookieJar) {
             CookieManager.saveResponse(response)
         }
