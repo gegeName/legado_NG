@@ -80,6 +80,11 @@ object ExtensionFeatures : AutoCloseable {
         url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)
     suspend fun sources(): List<SourceDescriptor> = withContext(Dispatchers.IO) { manga.sources() + anime.sources() }
     fun sourceChanges(): Flow<List<SourceDescriptor>> = combine(ExtensionRuntime.sources, ExtensionRuntime.animeSources, sourceRevision) { _, _, _ -> sources() }
+    fun sourcePackageName(key: SourceKey): String? = when (key.provider) {
+        "mihon" -> ExtensionRuntime.getPackageBySource(key.nativeId.toLong())
+        "aniyomi" -> ExtensionRuntime.getPackageByAnimeSource(key.nativeId.toLong())
+        else -> null
+    }
     suspend fun openImage(ref: ImageReference): ImageStream {
         var acquired: ImageStream? = null
         try { return withContext(Dispatchers.IO) { manga.openImage(ref).also { acquired = it } } }

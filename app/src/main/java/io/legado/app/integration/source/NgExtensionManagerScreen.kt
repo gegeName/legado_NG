@@ -227,16 +227,24 @@ internal fun NgExtensionCatalog(
             (entry.name.contains(search, true) || entry.packageName.contains(search, true)) &&
             extensionMatchesStatus(entry, downloads[entry.packageName], NgExtensionStatus.UPDATE_AVAILABLE)
     }.sortedWith(compareBy<ExtensionSummary> { it.name.lowercase() }.thenBy { it.id })
-    val visibleSources = sources.filter { source ->
+    fun sourceMatchesSearch(source: io.legado.features.api.source.SourceDescriptor) =
         search.isEmpty() || source.name.contains(search, true) ||
             source.language.contains(search, true) || source.key.provider.contains(search, true)
-    }
+    val sourcesByPackage = sources.mapNotNull { source ->
+        ExtensionFeatures.sourcePackageName(source.key)?.let { it to source }
+    }.groupBy({ it.first }, { it.second })
+    val sourceMatchedPackages = sources.filter(::sourceMatchesSearch)
+        .mapNotNull { ExtensionFeatures.sourcePackageName(it.key) }.toSet()
     val visible = entries.filter { entry ->
         (repository.isEmpty() || entry.repositoryUrl == repository) &&
             (language.isEmpty() || entry.language == language) &&
-            (entry.name.contains(search, true) || entry.packageName.contains(search, true)) &&
+            (entry.name.contains(search, true) || entry.packageName.contains(search, true) || entry.packageName in sourceMatchedPackages) &&
             extensionMatchesStatus(entry, downloads[entry.packageName], filter)
     }.sortedWith(compareBy<ExtensionSummary> { it.name.lowercase() }.thenBy { it.id })
+    val visibleSourceCount = visible.sumOf { entry ->
+        val extensionMatchesSearch = search.isEmpty() || entry.name.contains(search, true) || entry.packageName.contains(search, true)
+        sourcesByPackage[entry.packageName].orEmpty().count { extensionMatchesSearch || sourceMatchesSearch(it) }
+    }
     val secondary = Color(NgTheme.colors.onSurfaceVariant)
     Column(Modifier.fillMaxSize()) {
         Spacer(Modifier.height(12.dp))
@@ -297,53 +305,12 @@ internal fun NgExtensionCatalog(
             }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${visibleSources.size} 个来源 · ${visible.size} 个扩展", color = secondary, style = MaterialTheme.typography.labelMedium)
+            Text("$visibleSourceCount 个来源 · ${visible.size} 个扩展", color = secondary, style = MaterialTheme.typography.labelMedium)
             Text("下载后应用内使用", color = secondary, style = MaterialTheme.typography.labelMedium)
         }
         if (refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (message.isNotBlank()) Text(message, Modifier.padding(vertical = 6.dp), color = secondary, style = MaterialTheme.typography.bodySmall)
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 20.dp)) {
-            item(key = "managed-sources-title") {
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("扩展来源与设置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text("${visibleSources.size}", color = secondary, style = MaterialTheme.typography.labelMedium)
-                }
-            }
-            if (visibleSources.isEmpty()) {
-                item(key = "managed-sources-empty") {
-                    Text(
-                        if (sources.isEmpty()) "暂无已加载来源，请先安装并信任扩展" else "没有匹配的扩展来源",
-                        Modifier.padding(vertical = 8.dp),
-                        color = secondary,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-            items(visibleSources, key = { "source:${it.key.provider}:${it.key.nativeId}" }) { source ->
-                NgSourceListItem(
-                    name = source.name,
-                    detail = "${source.language} · ${source.key.provider}",
-                    enabled = source.enabled,
-                    busy = sourceBusy,
-                    onToggle = { onToggleSource(source) },
-                    actions = {
-                        NgDialogTextActionButton(
-                            text = "筛选",
-                            enabled = source.enabled && !sourceBusy,
-                            onClick = { NgSourceFiltersDialog.show(uiContext, source) },
-                        )
-                        NgDialogTextActionButton(
-                            text = "设置",
-                            enabled = !sourceBusy,
-                            onClick = { NgSourcePreferencesDialog.show(uiContext, source) },
-                        )
-                    },
-                )
-            }
             item(key = "extensions-title") {
                 Row(
                     Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp),
@@ -368,12 +335,26 @@ internal fun NgExtensionCatalog(
                     entry,
                     downloads[entry.packageName],
                     checkingWebsite = checkingWebsitePackage == entry.packageName,
+                    showUninstallMenu = sourcesByPackage[entry.packageName].orEmpty().isEmpty(),
                     onInstall = onInstall,
                     onCancel = onCancel,
                     onTrust = onTrust,
                     onUninstall = onUninstall,
                     onCheckWebsite = { onCheckWebsite(entry) },
                 )
+                val extensionMatchesSearch = search.isEmpty() || entry.name.contains(search, true) || entry.packageName.contains(search, true)
+                sourcesByPackage[entry.packageName].orEmpty().filter { extensionMatchesSearch || sourceMatchesSearch(it) }.forEach { source ->
+                    NgSourceListItem(
+                        name = source.name,
+                        detail = "${source.language} · ${source.key.provider}",
+                        enabled = source.enabled,
+                        busy = sourceBusy,
+                        onToggle = { onToggleSource(source) },
+                        onFilter = { NgSourceFiltersDialog.show(uiContext, source) },
+                        onPreferences = { NgSourcePreferencesDialog.show(uiContext, source) },
+                        onUninstall = { onUninstall(entry) },
+                    )
+                }
             }
         }
     }
@@ -430,6 +411,7 @@ internal fun NgExtensionListItem(
     entry: ExtensionSummary,
     download: ExtensionDownload?,
     checkingWebsite: Boolean,
+    showUninstallMenu: Boolean,
     onInstall: (ExtensionSummary) -> Unit,
     onCancel: (ExtensionSummary) -> Unit,
     onTrust: (ExtensionSummary) -> Unit,
@@ -492,7 +474,7 @@ internal fun NgExtensionListItem(
                     minimumWidth = 68.dp,
                 )
             }
-            if (entry.state != "available" && !running) {
+            if (showUninstallMenu && entry.state != "available" && !running) {
                 Box {
                     IconButton(onClick = { menu = true }, modifier = Modifier.width(36.dp)) { Icon(painterResource(R.drawable.ic_more_vert), "扩展操作", tint = secondary) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

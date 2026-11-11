@@ -4,6 +4,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -53,17 +57,45 @@ internal fun NgSourceListItem(
     enabled: Boolean,
     busy: Boolean,
     onToggle: () -> Unit,
-    actions: @Composable RowScope.() -> Unit,
+    onFilter: () -> Unit,
+    onPreferences: () -> Unit,
+    onUninstall: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxWidth().padding(start = 24.dp)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(detail, color = Color(NgTheme.colors.onSurfaceVariant), style = MaterialTheme.typography.bodySmall)
             }
             NgSwitchControl(checked = enabled, onCheckedChange = { onToggle() }, enabled = !busy, variant = NgSwitchControlVariant.COMPACT)
+            var expanded by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { expanded = true }, enabled = !busy, modifier = Modifier.size(40.dp)) {
+                    Icon(painterResource(R.drawable.ic_more_vert), "更多来源选项", tint = Color(NgTheme.colors.onSurfaceVariant))
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    DropdownMenuItem(
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_bookshelf_manage_filter_group), null) },
+                        text = { Text("筛选") },
+                        enabled = enabled && !busy,
+                        onClick = { expanded = false; onFilter() },
+                    )
+                    DropdownMenuItem(
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_settings), null) },
+                        text = { Text("设置") },
+                        enabled = !busy,
+                        onClick = { expanded = false; onPreferences() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_bgm_menu_delete), null) },
+                        text = { Text("卸载扩展") },
+                        enabled = !busy,
+                        onClick = { expanded = false; onUninstall() },
+                    )
+                }
+            }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, content = actions)
         HorizontalDivider(color = Color(NgTheme.colors.outlineVariant))
     }
 }
