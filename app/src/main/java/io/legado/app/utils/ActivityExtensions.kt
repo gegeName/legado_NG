@@ -193,11 +193,7 @@ fun Activity.toggleSystemBar(show: Boolean) {
     WindowCompat.getInsetsController(window, window.decorView).run {
         if (show) {
             show(WindowInsetsCompat.Type.statusBars())
-            if (AppConfig.hideSystemNavigationBar) {
-                hide(WindowInsetsCompat.Type.navigationBars())
-            } else {
-                show(WindowInsetsCompat.Type.navigationBars())
-            }
+            show(WindowInsetsCompat.Type.navigationBars())
         } else {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -211,12 +207,7 @@ fun Activity.applyAppNavigationBarVisibility() {
 
 fun Window.applyAppNavigationBarVisibility() {
     WindowCompat.getInsetsController(this, decorView).run {
-        if (AppConfig.hideSystemNavigationBar) {
-            hide(WindowInsetsCompat.Type.navigationBars())
-            systemBarsBehavior = BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        } else {
-            show(WindowInsetsCompat.Type.navigationBars())
-        }
+        show(WindowInsetsCompat.Type.navigationBars())
     }
 }
 

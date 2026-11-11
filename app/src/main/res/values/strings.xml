@@ -816,7 +816,7 @@
     <string name="listening_motion_intensity">Effect intensity</string>
     <string name="listening_motion_intensity_value">%1$d%%</string>
     <string name="playing_timer">Playing(%d min left)</string>
-    <string name="ps_hide_navigation_bar">Hide the system navigation bar throughout the app</string>
+    <string name="ps_hide_navigation_bar">Hide the system navigation bar on reading screens</string>
     <string name="pt_hide_navigation_bar">Hide system navigation bar</string>
     <string name="re_navigation_bar_color">Navigation bar color</string>
     <string name="scoring">Rating</string>
