@@ -24,6 +24,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -224,7 +225,7 @@ internal fun NgExtensionCatalog(
         (repository.isEmpty() || entry.repositoryUrl == repository) &&
             (language.isEmpty() || entry.language == language) &&
             (entry.name.contains(search, true) || entry.packageName.contains(search, true)) &&
-            extensionStatus(entry, downloads[entry.packageName]) == NgExtensionStatus.UPDATE_AVAILABLE
+            extensionMatchesStatus(entry, downloads[entry.packageName], NgExtensionStatus.UPDATE_AVAILABLE)
     }.sortedWith(compareBy<ExtensionSummary> { it.name.lowercase() }.thenBy { it.id })
     val visibleSources = sources.filter { source ->
         search.isEmpty() || source.name.contains(search, true) ||
@@ -234,7 +235,7 @@ internal fun NgExtensionCatalog(
         (repository.isEmpty() || entry.repositoryUrl == repository) &&
             (language.isEmpty() || entry.language == language) &&
             (entry.name.contains(search, true) || entry.packageName.contains(search, true)) &&
-            extensionStatus(entry, downloads[entry.packageName]) == filter
+            extensionMatchesStatus(entry, downloads[entry.packageName], filter)
     }.sortedWith(compareBy<ExtensionSummary> { it.name.lowercase() }.thenBy { it.id })
     val secondary = Color(NgTheme.colors.onSurfaceVariant)
     Column(Modifier.fillMaxSize()) {
@@ -250,6 +251,7 @@ internal fun NgExtensionCatalog(
                 label = if (language.isEmpty()) "全部语言" else languageLabel(language),
                 options = listOf("" to "全部语言") + languages.map { it to languageLabel(it) },
                 selected = language, onSelect = { language = it }, modifier = Modifier.weight(1f),
+                maxMenuHeight = 360.dp,
             )
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -385,6 +387,7 @@ private fun CatalogSelector(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     onManage: (() -> Unit)? = null,
+    maxMenuHeight: Dp? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier) {
@@ -392,7 +395,11 @@ private fun CatalogSelector(
             Text(label, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color(NgTheme.colors.onSurface), fontSize = 13.sp)
             Icon(painterResource(R.drawable.ic_expand_more), null, Modifier.size(18.dp), tint = Color(NgTheme.colors.onSurfaceVariant))
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = maxMenuHeight?.let { Modifier.heightIn(max = it) } ?: Modifier,
+        ) {
             options.forEach { (value, title) ->
                 DropdownMenuItem(text = { Text(title, fontWeight = if (value == selected) FontWeight.Bold else FontWeight.Normal) }, onClick = { expanded = false; onSelect(value) })
             }
@@ -432,7 +439,7 @@ internal fun NgExtensionListItem(
     val secondary = Color(NgTheme.colors.onSurfaceVariant)
     val running = download?.running == true
     val status = extensionStatus(entry, download)
-    val retry = status in setOf(NgExtensionStatus.DOWNLOAD_FAILED, NgExtensionStatus.DOWNLOAD_ERROR) ||
+    val retry = status == NgExtensionStatus.DOWNLOAD_FAILED ||
         download?.progress?.state == "cancelled"
     val needsTrust = entry.state == "notLoaded" && entry.fingerprint != null
     var menu by remember { mutableStateOf(false) }
@@ -453,7 +460,6 @@ internal fun NgExtensionListItem(
                     when (status) {
                         NgExtensionStatus.DOWNLOADING -> progressText(checkNotNull(download).progress)
                         NgExtensionStatus.DOWNLOAD_FAILED -> "下载失败，可重试"
-                        NgExtensionStatus.DOWNLOAD_ERROR -> "下载错误，可重试"
                         NgExtensionStatus.UPDATE_AVAILABLE -> "有可用更新"
                         NgExtensionStatus.DOWNLOADED -> when {
                             entry.state == "loaded" -> "已加载"

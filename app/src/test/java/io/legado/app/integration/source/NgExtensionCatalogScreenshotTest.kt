@@ -45,18 +45,24 @@ class NgExtensionCatalogScreenshotTest {
             NgExtensionStatus.UPDATE_AVAILABLE,
             extensionStatus(available.copy(state = "loaded", updateAvailable = true), null),
         )
+        val updateFailure = available.copy(state = "loaded", updateAvailable = true)
+        val failedDownload = ExtensionDownload(InstallProgress("error"), false)
+        assertEquals(NgExtensionStatus.DOWNLOAD_FAILED, extensionStatus(available, failedDownload))
+        assertEquals(NgExtensionStatus.DOWNLOAD_FAILED, extensionStatus(updateFailure, failedDownload))
         assertEquals(
-            NgExtensionStatus.DOWNLOAD_FAILED,
-            extensionStatus(
-                available,
-                ExtensionDownload(InstallProgress("error"), false, ExtensionDownloadFailureStage.DOWNLOAD),
-            ),
+            true,
+            extensionMatchesStatus(updateFailure, failedDownload, NgExtensionStatus.DOWNLOAD_FAILED),
         )
         assertEquals(
-            NgExtensionStatus.DOWNLOAD_ERROR,
-            extensionStatus(
-                available,
-                ExtensionDownload(InstallProgress("error"), false, ExtensionDownloadFailureStage.INSTALL),
+            true,
+            extensionMatchesStatus(updateFailure, failedDownload, NgExtensionStatus.UPDATE_AVAILABLE),
+        )
+        assertEquals(
+            false,
+            extensionMatchesStatus(
+                updateFailure,
+                ExtensionDownload(InstallProgress("installed"), false),
+                NgExtensionStatus.UPDATE_AVAILABLE,
             ),
         )
     }
@@ -103,7 +109,6 @@ class NgExtensionCatalogScreenshotTest {
                                 "pkg.e" to ExtensionDownload(
                                     InstallProgress("error", error = "网络请求失败，请重试"),
                                     false,
-                                    ExtensionDownloadFailureStage.DOWNLOAD,
                                 ),
                             ),
                             refreshing = false,
