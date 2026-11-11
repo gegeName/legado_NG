@@ -2,6 +2,7 @@ package io.legado.features.tvbox.jar
 
 import android.content.Context
 import com.github.catvod.Init
+import com.github.catvod.Runtime
 import com.github.catvod.crawler.Spider
 import com.github.catvod.utils.Crypto
 import dalvik.system.DexClassLoader
@@ -18,7 +19,9 @@ class JarSpiders(private val context: Context, private val root: File, private v
     fun invalidate(namespace: String) { refreshNamespaces += namespace; loaders.keys.removeAll { it.startsWith("$namespace:") } }
     /** Content fingerprint, not URL/versionCode, owns the classloader identity. */
     fun open(config: TvBoxConfig, site: TvBoxSite, refresh: Boolean = false): SpiderPort {
-        Init.set(context)
+        val appContext = context.applicationContext ?: context
+        Runtime.set(appContext)
+        Init.set(appContext)
         val spec = site.jar.ifBlank { config.spider }
         require(spec.isNotBlank()) { "TVBox 缺少 Spider JAR" }
         val uri = spec.substringBefore(";md5;")
@@ -58,7 +61,7 @@ class JarSpiders(private val context: Context, private val root: File, private v
                 val init = try { loader.loadClass("com.github.catvod.spider.Init") } catch (_: ClassNotFoundException) { null }
                 if (init != null) {
                     val method = try { init.getMethod("init", Context::class.java) } catch (_: NoSuchMethodException) { null }
-                    method?.invoke(null, context)
+                    method?.invoke(null, appContext)
                 }
             }
         }
@@ -66,7 +69,7 @@ class JarSpiders(private val context: Context, private val root: File, private v
         val klass = try { loader.loadClass("com.github.catvod.spider.$name") } catch (_: ClassNotFoundException) { loader.loadClass(name) }
         val spider = klass.getDeclaredConstructor().newInstance() as? Spider ?: error("Spider ABI 不匹配")
         spider.siteKey = site.key
-        try { spider.init(context, site.ext) } catch (e: Throwable) { spider.destroy(); throw e }
+        try { spider.init(appContext, site.ext) } catch (e: Throwable) { spider.destroy(); throw e }
         instances += spider
         return object : SpiderPort {
             override fun home(filter: Boolean) = spider.homeContent(filter)

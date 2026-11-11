@@ -3,6 +3,10 @@ package io.legado.features.tvbox.config
 import com.google.gson.*
 import java.net.URI
 import java.security.MessageDigest
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.Base64
+import java.util.zip.GZIPInputStream
 
 data class TvBoxSite(val key: String, val name: String, val type: Int, val api: String,
     val ext: String = "", val jar: String = "", val playUrl: String = "",
@@ -42,10 +46,51 @@ object TvBoxConfigs {
     }
     fun identity(base: String): String = MessageDigest.getInstance("SHA-256").digest(base.toByteArray())
         .joinToString("") { "%02x".format(it) }.take(32)
+    fun parse(payload: ByteArray, base: String, namespace: String = identity(base.ifBlank { payload.decodeToString() })): TvBoxConfig =
+        parse(decodePayload(payload), base, namespace)
+
+    fun decodePayload(payload: ByteArray): String {
+        require(payload.size <= MAX_CONFIG) { "TVBox 配置超过 8 MiB" }
+        val plain = payload.toString(Charsets.UTF_8).trimStart('\uFEFF', '\u0000', ' ', '\r', '\n', '\t')
+        if (plain.startsWith("{")) return plain
+
+        val marker = "**".toByteArray(Charsets.US_ASCII)
+        var markerIndex = -1
+        for (index in 0 until payload.size - marker.size + 1) {
+            if (payload[index] == marker[0] && payload[index + 1] == marker[1]) markerIndex = index
+        }
+        require(markerIndex >= 0) { "TVBox 响应不是 JSON 配置，且未找到图片配置分隔符" }
+        val encoded = payload.copyOfRange(markerIndex + marker.size, payload.size)
+            .toString(Charsets.US_ASCII)
+            .filterNot(Char::isWhitespace)
+        val decoded = try {
+            Base64.getDecoder().decode(encoded)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("TVBox 图片配置的 Base64 数据无效", e)
+        }
+        val configBytes = if (decoded.size >= 2 && decoded[0] == 0x1f.toByte() && decoded[1] == 0x8b.toByte()) {
+            GZIPInputStream(ByteArrayInputStream(decoded)).use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    require(output.size() + count <= MAX_CONFIG) { "TVBox 配置超过 8 MiB" }
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+        } else decoded
+        val json = configBytes.toString(Charsets.UTF_8).trimStart('\uFEFF', '\u0000', ' ', '\r', '\n', '\t')
+        require(json.startsWith("{")) { "TVBox 图片配置解码后不是 JSON 对象" }
+        return json
+    }
+
     fun parse(json: String, base: String, namespace: String = identity(base.ifBlank { json })): TvBoxConfig {
         require(json.toByteArray().size <= MAX_CONFIG) { "TVBox 配置超过 8 MiB" }
+        val normalized = decodePayload(json.toByteArray(Charsets.UTF_8))
         require(namespace.matches(Regex("[A-Za-z0-9_-]{1,80}"))) { "配置命名空间无效" }
-        val root = JsonParser.parseString(json).asJsonObject
+        val root = JsonParser.parseString(normalized).asJsonObject
         val sites = root.getAsJsonArray("sites") ?: error("TVBox 配置缺少 sites")
         require(sites.size() in 1..2000) { "TVBox 站点数量无效" }
         val mapped = sites.map { value ->
@@ -68,7 +113,7 @@ object TvBoxConfigs {
                 ext?.getAsJsonArray("flag")?.map { it.asString }.orEmpty(), p["ext"]?.takeUnless { it.isJsonNull }?.toString().orEmpty())
         }.orEmpty()
         return TvBoxConfig(namespace, base, relative(rawSpider, base), mapped,
-            root.getAsJsonArray("flags")?.map { it.asString }.orEmpty(), parses, json)
+            root.getAsJsonArray("flags")?.map { it.asString }.orEmpty(), parses, normalized)
     }
     /** Logical file/proxy URLs stay logical until a live session owns their resources. */
     fun relative(spec: String, base: String): String {

@@ -6,7 +6,10 @@ import java.io.ByteArrayOutputStream
 import kotlin.coroutines.CoroutineContext
 
 class TvBoxHttp(val client: OkHttpClient) {
-    companion object { internal val job = ThreadLocal<Job?>() }
+    companion object {
+        internal val job = ThreadLocal<Job?>()
+        private const val CONFIG_USER_AGENT = "okhttp/3.12.0"
+    }
     suspend fun <T> bound(action: () -> T): T = withContext(Dispatchers.IO) {
         val previous = job.get()
         job.set(currentCoroutineContext()[Job])
@@ -42,4 +45,22 @@ class TvBoxHttp(val client: OkHttpClient) {
             check(response.isSuccessful) { "TVBox HTTP ${response.code}" }
             bytes.toString(response.body.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8)
         }
+    fun bytes(url: String, headers: Map<String, String> = emptyMap(), limit: Int = 8 * 1024 * 1024): ByteArray =
+        execute(Request.Builder().url(url).apply { headers.forEach { (k, v) -> header(k, v) } }.build(), limit) { response, bytes ->
+            check(response.isSuccessful) { "TVBox HTTP ${response.code}" }
+            bytes
+        }
+
+    suspend fun configBytes(url: String): ByteArray = bound {
+        val response = bytes(url)
+        try {
+            io.legado.features.tvbox.config.TvBoxConfigs.decodePayload(response)
+            response
+        } catch (error: IllegalArgumentException) {
+            if (!error.message.orEmpty().contains("未找到图片配置分隔符")) throw error
+            val fallback = bytes(url, mapOf("User-Agent" to CONFIG_USER_AGENT))
+            io.legado.features.tvbox.config.TvBoxConfigs.decodePayload(fallback)
+            fallback
+        }
+    }
 }

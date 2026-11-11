@@ -48,13 +48,22 @@ class TvBoxProvider(private val context: Context, private val settings: ConfigPo
         save(saved)
         descriptors()
     }
+    suspend fun import(payload: ByteArray, base: String): List<SourceDescriptor> = mutex.withLock {
+        check(!closed)
+        val parsed = TvBoxConfigs.parse(payload, base)
+        val saved = TvBoxConfigs.encode(configs.values.filter { it.namespace != parsed.namespace } + parsed)
+        invalidate(parsed.namespace)
+        configs[parsed.namespace] = parsed
+        save(saved)
+        descriptors()
+    }
     suspend fun refresh(namespace: String): List<SourceDescriptor> {
         val config = mutex.withLock { checkNotNull(configs[namespace]) }
         require(config.baseUrl.startsWith("http")) { "本地配置请重新选择文件导入" }
-        val text = http.bound { http.text(config.baseUrl) }
+        val payload = http.configBytes(config.baseUrl)
         return mutex.withLock {
             if (closed || configs[namespace] !== config) throw CancellationException("TVBox 配置会话已变化")
-            val updated = TvBoxConfigs.parse(text, config.baseUrl, namespace)
+            val updated = TvBoxConfigs.parse(payload, config.baseUrl, namespace)
             val saved = TvBoxConfigs.encode(configs.values.filter { it.namespace != namespace } + updated)
             invalidate(namespace); configs[namespace] = updated; save(saved); descriptors()
         }

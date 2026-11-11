@@ -25,7 +25,7 @@ object TvBoxFeatures {
     suspend fun import(text: String, base: String) = engine().import(text, base)
     suspend fun importUrl(url: String): List<io.legado.features.api.source.SourceDescriptor> {
         val http = transport ?: error("TVBox 网络尚未初始化")
-        return import(http.bound { http.text(url) }, url)
+        return engine().import(http.configBytes(url), url)
     }
     @Volatile private var transport: TvBoxHttp? = null
     suspend fun configurations() = engine().configurations()
