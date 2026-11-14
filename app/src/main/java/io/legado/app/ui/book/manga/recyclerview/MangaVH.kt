@@ -66,7 +66,7 @@ open class MangaVH<VB : ViewBinding>(val binding: VB, private val context: Conte
         ProgressManager.removeListener(imageUrl)
         ProgressManager.addListener(imageUrl) { _, percentage, _, _ ->
             @SuppressLint("SetTextI18n")
-            mProgress.text = "$percentage%"
+            mProgress.text = if (percentage < 0) "加载中" else "$percentage%"
         }
         try {
             mImage.tag = imageUrl

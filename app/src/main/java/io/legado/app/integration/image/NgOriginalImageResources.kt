@@ -10,6 +10,8 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.getCachedBookImage
 import io.legado.app.help.glide.OkHttpModelLoader
+import io.legado.app.help.glide.progress.ProgressManager
+import io.legado.app.help.glide.progress.ProgressResponseBody
 import io.legado.app.help.http.CookieStore
 import io.legado.app.integration.source.NgExtensionSourceBridge
 import io.legado.app.model.analyzeRule.AnalyzeUrl
@@ -20,6 +22,9 @@ import io.legado.features.adapter.SharedImageResources
 import io.legado.features.api.host.*
 import io.legado.features.api.source.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import java.io.File
 import java.io.IOException
 import java.io.ByteArrayOutputStream
@@ -29,6 +34,9 @@ import splitties.init.appCtx
 
 /** Captures NG entities once; all task/subscriber/priority decisions belong to SharedImageResources. */
 object NgOriginalImageResources {
+    data class ImageReady(val bookId: String, val url: String)
+    private val readyImages = MutableSharedFlow<ImageReady>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val imagesReady = readyImages.asSharedFlow()
     data class TranslationInput(val reference: io.legado.features.api.manga.TranslationRequest, val original: suspend () -> FileLease)
     data class Request(
         val book: Book,
@@ -89,12 +97,23 @@ object NgOriginalImageResources {
                                 total += size
                                 check(total <= 64L * 1024 * 1024) { "扩展图片过大" }
                                 output.write(buffer, 0, size)
+                                ProgressManager.report(request.url, total, lease.length)
                             }
+                            ProgressManager.report(request.url, total, total)
                             output.fd.sync()
                         }
                     }
                 } else {
-                    val bytes = AnalyzeUrl(request.url, source = request.source, coroutineContext = currentCoroutineContext()).getInputStreamAwait().use { input ->
+                    val analyze = AnalyzeUrl(request.url, source = request.source, coroutineContext = currentCoroutineContext())
+                    val stream = if (analyze.urlNoQuery.startsWith("data:")) analyze.getInputStreamAwait() else {
+                        val response = analyze.getResponseAwait()
+                        if (!response.isSuccessful) {
+                            response.close()
+                            throw IOException("图片请求失败：HTTP ${response.code}")
+                        }
+                        ProgressResponseBody(request.url, ProgressManager.LISTENER, response.body).byteStream()
+                    }
+                    val bytes = stream.use { input ->
                         val output = ByteArrayOutputStream()
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                         while (true) {
@@ -127,6 +146,7 @@ object NgOriginalImageResources {
             }
             writeStamp(target, key.configurationFingerprint)
             check(pending.delete()) { "无法完成图片缓存发布" }
+            readyImages.tryEmit(ImageReady(key.bookId, key.resourceId))
             return target
         }
     }

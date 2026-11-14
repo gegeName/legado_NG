@@ -286,9 +286,19 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
         LaunchedEffect(displayPages, ui.active, imageTransformation) {
             if (!ui.active) { preloader.clear(); return@LaunchedEffect }
             var previous = list.firstVisibleItemIndex
+            var forward = true
+            launch {
+                NgOriginalImageResources.imagesReady.collect { image ->
+                    if (image.bookId == ui.bookUrl) preloader.update(
+                        displayPages, prefetchItems, list.firstVisibleItemIndex,
+                        MangaImagePreloader.IMAGE_LOOKAHEAD_COUNT, forward, transformation = imageTransformation,
+                    )
+                }
+            }
             snapshotFlow { list.firstVisibleItemIndex }.distinctUntilChanged().collect { position ->
+                forward = position >= previous
                 preloader.update(
-                    displayPages, prefetchItems, position, MangaImagePreloader.IMAGE_LOOKAHEAD_COUNT, position >= previous,
+                    displayPages, prefetchItems, position, MangaImagePreloader.IMAGE_LOOKAHEAD_COUNT, forward,
                     transformation = imageTransformation,
                 )
                 previous = position
@@ -494,8 +504,21 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
             loadingIndicatorVisible = true
         }
     }
-    var progress by remember(page.mImageUrl) { mutableIntStateOf(0) }
+    var progress by remember(page.mImageUrl) { mutableIntStateOf(-1) }
     var retry by remember(page.mImageUrl) { mutableIntStateOf(0) }
+    var availableRevision by remember(ui.bookUrl, page.mImageUrl) { mutableIntStateOf(0) }
+    var retriedRevision by remember(ui.bookUrl, page.mImageUrl) { mutableIntStateOf(0) }
+    LaunchedEffect(ui.bookUrl, page.mImageUrl) {
+        NgOriginalImageResources.imagesReady.collect { image ->
+            if (image.bookId == ui.bookUrl && image.url == page.mImageUrl) availableRevision++
+        }
+    }
+    LaunchedEffect(failed, availableRevision) {
+        if (failed && !hasDisplayedImage && availableRevision > retriedRevision) {
+            retriedRevision = availableRevision
+            retry++
+        }
+    }
     val diagnosticInstance = remember(page.mImageUrl) { MangaScrollDiagnostics.nextInstance() }
     DisposableEffect(page.mImageUrl) {
         MangaScrollDiagnostics.event("IMAGE_CREATE") { "key=${mangaPageKey(page)} instance=$diagnosticInstance ratio=$ratio" }
@@ -539,9 +562,9 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
         }
     }
     DisposableEffect(page.mImageUrl, retry, transform) {
-        loading = !hasDisplayedImage; failed = false; progress = 0
-        ProgressManager.addListener(page.mImageUrl) { _, percentage, _, _ -> progress = percentage }
-        onDispose { ProgressManager.removeListener(page.mImageUrl) }
+        loading = !hasDisplayedImage; failed = false; progress = -1
+        val subscription = ProgressManager.subscribe(page.mImageUrl) { _, percentage, _, _ -> progress = percentage }
+        onDispose { subscription.close() }
     }
     val diagnosticModifier = if (MangaScrollDiagnostics.enabled) Modifier.onSizeChanged {
         MangaScrollDiagnostics.event("IMAGE_SIZE") {
@@ -606,7 +629,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                     if (failed) Text("重新加载", Modifier.clickable { retry++ }.padding(16.dp), color = Color.White, fontSize = 18.sp)
                     else {
                         CircularProgressIndicator(Modifier.size(36.dp), color = Color.White, strokeWidth = 3.dp)
-                        Text("$progress%", Modifier.padding(top = 8.dp), color = Color.White)
+                        Text(if (progress < 0) "加载中" else "$progress%", Modifier.padding(top = 8.dp), color = Color.White)
                     }
                 }
             }
@@ -678,8 +701,10 @@ internal class MangaImagePreloader(
             decodedTargets.clear()
             decodedTransformationKey = transformKey
         }
-        val decodeUrls = if (ReadManga.book?.isPdf == true) emptySet()
-            else plan.network.take(DECODE_AHEAD_COUNT).map { it.resource }.toSet()
+        val imageBook = ReadManga.book?.takeIf { sourceOrigin == null || it.origin == sourceOrigin }
+        val decodeUrls = if (imageBook == null || imageBook.isPdf) emptySet()
+            else plan.network.take(DECODE_AHEAD_COUNT).map { it.resource }
+                .filter { NgOriginalImageResources.hasCachedImage(imageBook, it) }.toSet()
         val retainedDecodeUrls = decodeUrls + pages.getOrNull(position)
             ?.let(NgMangaLayout::realPages).orEmpty().map { it.mImageUrl }
         val decodedIterator = decodedTargets.iterator()

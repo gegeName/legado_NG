@@ -99,9 +99,8 @@ class CachedChapterImageQueue(
                         }
                     }
                 }
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
                 report(null, e)
                 retryAt = now() + retryDelayMillis
             }
@@ -126,8 +125,6 @@ class CachedChapterImageQueue(
             currentCoroutineContext().ensureActive()
             synchronized(monitor) { state.failures.remove(url) }
             true
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
             synchronized(monitor) { state.failures[url] = Failure((failure?.attempts ?: 0) + 1, now() + retryDelayMillis) }
