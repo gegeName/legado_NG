@@ -110,7 +110,6 @@ import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.CatalogOutlineEntry
 import io.legado.app.data.entities.Bookmark
 import io.legado.app.help.book.BookHelp
-import io.legado.app.help.book.ContentProcessor
 import io.legado.app.help.config.AppConfig
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.book.bookmark.AllBookmarkFilter
@@ -143,6 +142,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal abstract class CatalogDrawerDialog : BottomSheetDialogFragment() {
+
+    private companion object {
+        val titleCache = CatalogTitleCache.shared
+    }
 
     private var chapterCount by mutableStateOf(0)
     private var bookmarks by mutableStateOf<List<Bookmark>>(emptyList())
@@ -313,6 +316,11 @@ internal abstract class CatalogDrawerDialog : BottomSheetDialogFragment() {
                     },
                     onBookmarkClick = ::onBookmarkSelected,
                     onBookmarkDelete = ::deleteBookmark,
+                    onTitleReplaceChanged = {
+                        if (activity is ReadBookActivity) {
+                            ViewModelProvider(requireActivity())[ReadBookViewModel::class.java].prepareCatalogTitles()
+                        }
+                    },
                 )
             }
             CompositionLocalProvider(LocalNgPaneBounds provides catalogPaneBounds()) {
@@ -506,16 +514,20 @@ internal abstract class CatalogDrawerDialog : BottomSheetDialogFragment() {
         displayChapters(chapters)
     }
 
-    private fun displayChapters(chapters: List<BookChapter>): List<CatalogChapter> {
+    private suspend fun displayChapters(chapters: List<BookChapter>): List<CatalogChapter> {
         val book = catalogBook()
         val useReplace = visualStyle() != CatalogDrawerVisualStyle.LISTENING &&
             AppConfig.tocUiUseReplace && book?.getUseReplaceRule() == true
         val rules = if (useReplace && book != null) {
-            ContentProcessor.get(book.name, book.origin).getTitleReplaceRules()
+            appDb.replaceRuleDao.findEnabledByTitleScope(book.name, book.origin)
         } else null
         val replaceBook = if (useReplace) book?.toReplaceBook() else null
         return chapters.map {
-            CatalogChapter(it, it.getDisplayTitle(rules, useReplace, replaceBook = replaceBook))
+            currentCoroutineContext().ensureActive()
+            val title = titleCache.title(it, rules, useReplace, replaceBook, AppConfig.chineseConverterType) { titleRules ->
+                it.getDisplayTitle(titleRules, useReplace, replaceBook = replaceBook)
+            }
+            CatalogChapter(it, title)
         }
     }
 }
@@ -606,6 +618,7 @@ internal enum class CatalogDrawerVisualStyle {
 }
 
 private const val CATALOG_PAGE_SIZE = 64
+private const val CATALOG_TITLE_BATCH_SIZE = 8
 private const val CATALOG_PRELOAD_ITEMS = 16
 private const val CATALOG_RETAINED_PAGE_RADIUS = 2
 
@@ -641,6 +654,7 @@ private fun ReadCatalogPanel(
     onCacheClick: () -> Unit,
     onBookmarkClick: (Bookmark) -> Unit,
     onBookmarkDelete: (Bookmark) -> Unit,
+    onTitleReplaceChanged: () -> Unit,
 ) {
     var showWordCount by remember { mutableStateOf(showTextTools && AppConfig.tocCountWords) }
     var useReplace by remember { mutableStateOf(AppConfig.tocUiUseReplace) }
@@ -903,6 +917,7 @@ private fun ReadCatalogPanel(
                             modifier = Modifier.weight(1f).widthIn(min = 96.dp)) {
                             projectionPreparation.cancel()
                             useReplace = it; AppConfig.tocUiUseReplace = it
+                            onTitleReplaceChanged()
                         }
                     }
                     if (!useDirectChapterControls) {
@@ -1611,8 +1626,9 @@ private fun CatalogChapterList(
         datasetLoading = false
     }
     val publishedEpoch = outlineCache.epoch
-    LaunchedEffect(bookUrl, query, descending, itemCount, dataVersion, useReplace, visibleOutline, publishedEpoch) {
-        if (itemCount <= 0) return@LaunchedEffect
+    LaunchedEffect(bookUrl, query, descending, itemCount, dataVersion, useReplace, visibleOutline, publishedEpoch, datasetLoading) {
+        // Wait for the initial scroll to the reading position before evaluating titles.
+        if (itemCount <= 0 || datasetLoading) return@LaunchedEffect
         snapshotFlow {
             val visibleItems = listState.layoutInfo.visibleItemsInfo
             val first = visibleItems.firstOrNull()?.index ?: listState.firstVisibleItemIndex
@@ -1625,12 +1641,10 @@ private fun CatalogChapterList(
             val firstPage = preloadStart / CATALOG_PAGE_SIZE
             val lastPage = preloadEnd / CATALOG_PAGE_SIZE
             if (visibleOutline != null) {
-                val protectedRows = visibleOutline.subList(
-                    firstPage * CATALOG_PAGE_SIZE,
-                    ((lastPage + 1) * CATALOG_PAGE_SIZE).coerceAtMost(itemCount),
-                )
+                val protectedRows = visibleOutline.subList(preloadStart, preloadEnd + 1)
                 if (!outlineCache.retain(protectedRows, publishedEpoch)) return@collectLatest
-                for (rows in protectedRows.chunked(CATALOG_PAGE_SIZE)) {
+                val prioritizedRows = catalogTitleLoadOrder(visibleOutline, firstVisible, lastVisible, CATALOG_PRELOAD_ITEMS)
+                for (rows in prioritizedRows.chunked(CATALOG_TITLE_BATCH_SIZE)) {
                     val missing = outlineCache.missing(rows)
                     if (missing.isNotEmpty()) {
                         val chapters = loadChapterIndices(missing.map { it.index })
@@ -1792,7 +1806,7 @@ internal fun NgCatalogChapterRow(
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalArrangement = if (chapterTag == null) Arrangement.Center else Arrangement.Top,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (chapter.isVip) {
                 Icon(
                     imageVector = if (chapter.isPay) {
@@ -1822,7 +1836,7 @@ internal fun NgCatalogChapterRow(
                 } else {
                     FontWeight.Normal
                 },
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             if (volumeExpanded != null) {

@@ -2,3 +2,17 @@
 -keep class eu.kanade.tachiyomi.** { *; }
 -keep interface eu.kanade.tachiyomi.** { *; }
 -keep class uy.kohesive.injekt.** { *; }
+-keep class kotlin.** { *; }
+-keep interface kotlin.** { *; }
+-keep class kotlinx.** { *; }
+-keep interface kotlinx.** { *; }
+-keep class rx.** { *; }
+-keep interface rx.** { *; }
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-keep class com.squareup.zstd.** { *; }
+-keep interface com.squareup.zstd.** { *; }
+-keep class okio.** { *; }
+-keep interface okio.** { *; }
+-keep class org.jsoup.** { *; }
+-keep interface org.jsoup.** { *; }

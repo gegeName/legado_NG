@@ -68,6 +68,17 @@ internal fun catalogProjectionWindow(
         (first + visibleCount.coerceAtLeast(1) + preloadItems).coerceAtMost(rows.size))
 }
 
+/** Load the viewport before its bounded prefetch window, independent of page boundaries. */
+internal fun catalogTitleLoadOrder(
+    rows: List<CatalogOutlineEntry>, firstPosition: Int, lastPosition: Int, preloadItems: Int,
+): List<CatalogOutlineEntry> {
+    if (rows.isEmpty()) return emptyList()
+    val first = firstPosition.coerceIn(rows.indices)
+    val last = lastPosition.coerceIn(first, rows.lastIndex)
+    val visible = rows.subList(first, last + 1)
+    return (visible + catalogProjectionWindow(rows, first, visible.size, preloadItems)).distinctBy { it.url }
+}
+
 internal fun catalogProjectionRows(
     rows: List<CatalogOutlineEntry>, oldPosition: Int, oldAnchorIndex: Int,
     targetPosition: Int, visibleCount: Int, preloadItems: Int = 16,

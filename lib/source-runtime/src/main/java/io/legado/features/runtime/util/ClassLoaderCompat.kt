@@ -18,7 +18,7 @@ internal fun isSharedExtensionClass(name: String) =
     !name.startsWith("eu.kanade.tachiyomi.extension.") &&
     !name.startsWith("eu.kanade.tachiyomi.animeextension.") &&
     listOf("eu.kanade.tachiyomi.", "okhttp3.", "okio.", "kotlin.", "kotlinx.", "rx.",
-        "uy.kohesive.injekt.", "org.jsoup.").any(name::startsWith)
+        "uy.kohesive.injekt.", "org.jsoup.", "com.squareup.zstd.").any(name::startsWith)
 
 private class DelegateLastPathClassLoader(
     dexPath: String,

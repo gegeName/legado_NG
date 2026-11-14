@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.viewModelScope
 import io.legado.app.R
 import io.legado.app.base.BaseViewModel
 import io.legado.app.constant.AppLog
@@ -44,6 +45,11 @@ import io.legado.app.utils.postEvent
 import io.legado.app.utils.toStringArray
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
@@ -71,6 +77,43 @@ class ReadBookViewModel(application: Application) : BaseViewModel(application) {
     var searchResultList: List<SearchResult>? = null
     var searchResultIndex: Int = 0
     private var changeSourceCoroutine: Coroutine<*>? = null
+    private var catalogTitlePreparation: Job? = null
+
+    @Synchronized
+    fun prepareCatalogTitles() {
+        catalogTitlePreparation?.cancel()
+        val book = ReadBook.book?.copy() ?: return
+        if (!AppConfig.tocUiUseReplace || !book.getUseReplaceRule()) return
+        catalogTitlePreparation = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val rules = appDb.replaceRuleDao.findEnabledByTitleScope(book.name, book.origin)
+                val replaceBook = book.toReplaceBook()
+                val converter = AppConfig.chineseConverterType
+                val cache = CatalogTitleCache.shared
+                val count = appDb.bookChapterDao.getChapterCount(book.bookUrl)
+                cache.reserve(count)
+                var offset = 0
+                while (offset < count) {
+                    currentCoroutineContext().ensureActive()
+                    if (ReadBook.book?.bookUrl != book.bookUrl || !AppConfig.tocUiUseReplace) return@launch
+                    val chapters = appDb.bookChapterDao.getChapterPage(book.bookUrl, offset, 64)
+                    if (chapters.isEmpty()) break
+                    for (chapter in chapters) {
+                        currentCoroutineContext().ensureActive()
+                        cache.title(chapter, rules, true, replaceBook, converter) { titleRules ->
+                            chapter.getDisplayTitle(titleRules, true, replaceBook = replaceBook)
+                        }
+                        yield()
+                    }
+                    offset += chapters.size
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.put("目录标题后台净化失败", e)
+            }
+        }
+    }
     private var enterReplaceRuleResetBookUrl: String? = null
     private var enterReplaceRuleResetScheduled = false
     private var enterReplaceRuleResetDone = false
@@ -156,6 +199,7 @@ class ReadBookViewModel(application: Application) : BaseViewModel(application) {
             return
         }
         startup?.mark("chapter-list-ready")
+        prepareCatalogTitles()
         ReadBook.upMsg(null)
         if (!isSameBook) {
             ReadBook.loadContent(resetPageOffset = true) {
@@ -296,6 +340,7 @@ class ReadBookViewModel(application: Application) : BaseViewModel(application) {
                     appDb.bookChapterDao.insert(*it.toTypedArray())
                     appDb.bookDao.update(book)
                     ReadBook.onChapterListUpdated(book)
+                    prepareCatalogTitles()
                 }
                 return true
             }.onFailure {
@@ -325,6 +370,7 @@ class ReadBookViewModel(application: Application) : BaseViewModel(application) {
                         appDb.bookChapterDao.delByBook(oldBook.bookUrl)
                         appDb.bookChapterDao.insert(*cList.toTypedArray())
                         ReadBook.onChapterListUpdated(book)
+                        prepareCatalogTitles()
                         return true
                     }.onFailure {
                         currentCoroutineContext().ensureActive()
@@ -381,6 +427,7 @@ class ReadBookViewModel(application: Application) : BaseViewModel(application) {
             appDb.bookDao.insert(book)
             appDb.bookChapterDao.insert(*toc.toTypedArray())
             ReadBook.resetData(book)
+            prepareCatalogTitles()
             ReadBook.upMsg(null)
             ReadBook.loadContent(resetPageOffset = true)
         }.onError {
@@ -710,6 +757,7 @@ class ReadBookViewModel(application: Application) : BaseViewModel(application) {
         }
         if (ReadBook.book?.bookUrl != bookUrl) return
         ReadBook.reloadContentForReplaceRuleChangedAwait(resetPageOffset = false)
+        prepareCatalogTitles()
     }
 
     fun setSourceEnabled(enabled: Boolean) {
