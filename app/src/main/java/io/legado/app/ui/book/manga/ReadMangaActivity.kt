@@ -437,7 +437,6 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
             }
             MangaSetting.SCALE -> { ui.scaleEnabled = enabled; AppConfig.disableMangaScale = !enabled }
             MangaSetting.CLICK -> { ui.clickTurn = enabled; AppConfig.disableClickScroll = !enabled }
-            MangaSetting.PRELOAD -> { ui.preload = value; AppConfig.mangaPreDownloadNum = value }
             MangaSetting.PDF_AHEAD -> {
                 ui.pdfAhead = value.coerceIn(0, 16)
                 io.legado.app.integration.manga.NgMangaPdfBridge.saveAhead(ui.pdfAhead)
@@ -458,11 +457,6 @@ class ReadMangaActivity : VMBaseActivity<ComposeActivityBinding, ReadMangaViewMo
             MangaSetting.CHAPTER_BEHIND -> {
                 ui.chapterBehind = value.coerceIn(0, 100)
                 NgMangaReaderBridge.preferences = NgMangaReaderBridge.preferences.copy(chapterBehind = ui.chapterBehind)
-                ReadManga.curPageChanged()
-            }
-            MangaSetting.IMAGE_CHAPTERS -> {
-                ui.imageChapters = value.coerceIn(0, 100)
-                NgMangaReaderBridge.preferences = NgMangaReaderBridge.preferences.copy(imageChapters = ui.imageChapters)
                 ReadManga.curPageChanged()
             }
             MangaSetting.CATALOG_STYLE -> {

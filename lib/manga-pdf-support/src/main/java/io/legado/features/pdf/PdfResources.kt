@@ -50,8 +50,7 @@ class PdfResources(private val root: File, private val backend: PdfRenderBackend
     private fun priority(value: ResourcePriority) = when (value) {
         ResourcePriority.USER_REQUEST -> 0
         ResourcePriority.VISIBLE -> 1
-        ResourcePriority.NEAR_PREFETCH -> 2
-        ResourcePriority.PREFETCH -> 3
+        ResourcePriority.PREFETCH -> 2
     }
     private fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun directory(key: PdfDocumentKey) = File(root, hash(key.bookId))

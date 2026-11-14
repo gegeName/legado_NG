@@ -30,8 +30,8 @@ internal enum class MangaAction {
     SOURCE_LOGIN, SOURCE_EDIT, SOURCE_DISABLE, SOURCE_ENABLE, CHAPTER_PAY,
 }
 internal enum class MangaSetting {
-    MODE, LAYOUT, DIRECTION, EFFECT, BOOK_STYLE, AUTO, INTERVAL, SPEED, SCALE, CLICK, PRELOAD, HINTS,
-    CHAPTER_AHEAD, CHAPTER_BEHIND, IMAGE_CHAPTERS, DOUBLE_PAGE, PDF_AHEAD,
+    MODE, LAYOUT, DIRECTION, EFFECT, BOOK_STYLE, AUTO, INTERVAL, SPEED, SCALE, CLICK, HINTS,
+    CHAPTER_AHEAD, CHAPTER_BEHIND, DOUBLE_PAGE, PDF_AHEAD,
     COLOR, THRESHOLD, BRIGHTNESS, RED, GREEN, BLUE, ALPHA,
     FOOTER, FOOTER_LEFT, FOOTER_MIDDLE, FOOTER_RIGHT, CATALOG_STYLE,
 }
@@ -73,10 +73,8 @@ internal class MangaReaderState {
     var touching by mutableStateOf(false)
     var touchUpRevision by mutableIntStateOf(0)
     var externalModal by mutableStateOf(false)
-    var preload by mutableIntStateOf(AppConfig.mangaPreDownloadNum.coerceAtLeast(0))
     var chapterAhead by mutableIntStateOf(NgMangaReaderBridge.preferences.chapterAhead)
     var chapterBehind by mutableIntStateOf(NgMangaReaderBridge.preferences.chapterBehind)
-    var imageChapters by mutableIntStateOf(NgMangaReaderBridge.preferences.imageChapters)
     var doublePage by mutableStateOf(NgMangaReaderBridge.preferences.doublePage)
     var pdfAhead by mutableIntStateOf(io.legado.app.integration.manga.NgMangaPdfBridge.ahead())
     var translationEnabled by mutableStateOf(NgMangaTranslationBridge.configuration.enabled)

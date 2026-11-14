@@ -22,8 +22,7 @@ object NgOriginalImageFileLoader {
             override fun handles(model: NgOriginalImageResources.Request) = true
             override fun buildLoadData(model: NgOriginalImageResources.Request, width: Int, height: Int, options: Options) =
                 ModelLoader.LoadData(ObjectKey(MangaImageCacheKey.value(model.book, model.url)),
-                    NgOriginalImageFetcher(model, options.get(OkHttpModelLoader.loadOnlyWifiOption) == true,
-                        options.get(NgOriginalImageResources.cacheOnlyOption) == true, options.get(NgOriginalImageResources.nearPrefetchOption) == true))
+                    NgOriginalImageFetcher(model, options.get(OkHttpModelLoader.loadOnlyWifiOption) == true, options.get(NgOriginalImageResources.cacheOnlyOption) == true))
         }
         override fun teardown() {}
     }
@@ -32,8 +31,7 @@ object NgOriginalImageFileLoader {
             override fun handles(model: NgOriginalImageResources.Request) = true
             override fun buildLoadData(model: NgOriginalImageResources.Request, width: Int, height: Int, options: Options) =
                 ModelLoader.LoadData(ObjectKey(MangaImageCacheKey.value(model.book, model.url)),
-                    NgOriginalImageFileFetcher(model, options.get(OkHttpModelLoader.loadOnlyWifiOption) == true,
-                        options.get(NgOriginalImageResources.cacheOnlyOption) == true, options.get(NgOriginalImageResources.nearPrefetchOption) == true))
+                    NgOriginalImageFileFetcher(model, options.get(OkHttpModelLoader.loadOnlyWifiOption) == true, options.get(NgOriginalImageResources.cacheOnlyOption) == true))
         }
         override fun teardown() {}
     }

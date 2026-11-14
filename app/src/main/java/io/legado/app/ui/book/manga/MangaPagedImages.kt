@@ -135,12 +135,12 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
                 page?.let { latestPage(NgMangaLayout.progress(it, ui.currentPage)) }
             }
         }
-        LaunchedEffect(ui.active, displayPages, ui.preload, imageTransformation) {
+        LaunchedEffect(ui.active, displayPages, imageTransformation) {
             if (!ui.active) { preloader.clear(); return@LaunchedEffect }
             var previous = position
             snapshotFlow { position }.collect { index ->
                 preloader.update(
-                    displayPages, prefetchItems, index, ui.preload, index >= previous,
+                    displayPages, prefetchItems, index, MangaImagePreloader.IMAGE_LOOKAHEAD_COUNT, index >= previous,
                     transformation = imageTransformation,
                 )
                 previous = index

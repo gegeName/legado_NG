@@ -441,6 +441,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
             val bookSource = bookSource ?: let {
                 chapterListData.postValue(emptyList())
                 context.toastOnUi(R.string.error_no_source)
+                refreshFinished.postValue(Unit)
                 return
             }
             val requestBookUrl = book.bookUrl
@@ -515,6 +516,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
             val bookSource = bookSource ?: let {
                 chapterListData.postValue(emptyList())
                 context.toastOnUi(R.string.error_no_source)
+                refreshFinished.postValue(Unit)
                 return
             }
             val oldBook = book.copy()

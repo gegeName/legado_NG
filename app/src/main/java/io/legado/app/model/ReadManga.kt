@@ -283,7 +283,10 @@ object ReadManga : CoroutineScope by MainScope() {
     ) {
         synchronized(this) {
             if (!isLoadCurrent(chapter.bookUrl, generation)) return
-            book?.let { NgMangaReaderBridge.updateImageWindow(it, bookSource, durChapterIndex, chapterSize, generation) }
+            book?.let {
+                NgMangaReaderBridge.updateImageWindow(it, bookSource, durChapterIndex, chapterSize, generation,
+                    newlyAvailableChapter = chapter.index)
+            }
             removeLoading(chapter.index)
             if (canceled) {
                 if (NgMangaReaderBridge.navigation.target() == chapter.index) {
