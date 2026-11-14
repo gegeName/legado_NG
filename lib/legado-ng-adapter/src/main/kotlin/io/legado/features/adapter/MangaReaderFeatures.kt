@@ -41,4 +41,13 @@ object MangaReaderFeatures {
         fun clear() = delegate.clear()
         override fun close() = delegate.close()
     }
+    class ImageDownloads : AutoCloseable {
+        private val delegate = CachedChapterImageQueue()
+        fun update(key: ReaderSessionKey, current: Int, total: Int, newlyAvailableChapter: Int?,
+                   chapters: suspend () -> List<Int>, images: suspend (Int) -> List<String>?,
+                   download: suspend (String) -> Unit, report: (Int?, Throwable) -> Unit) =
+            delegate.update(key, current, total, newlyAvailableChapter, chapters, images, download, report)
+        fun clear() = delegate.clear()
+        override fun close() = delegate.close()
+    }
 }

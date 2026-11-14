@@ -14,6 +14,7 @@ import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.completeChapterCache
 import io.legado.app.help.book.hasCompleteChapterImages
 import io.legado.app.help.book.hasUsableChapterCacheContent
+import io.legado.app.help.book.isImage
 import io.legado.app.help.book.isAudio
 import io.legado.app.help.book.menuCapabilities
 import io.legado.app.help.config.AppConfig
@@ -378,7 +379,7 @@ object CacheBook {
             val requestBook = book
             val requestSource = bookSource
             val cachedContent = BookHelp.getContent(requestBook, chapter)
-            if (hasCompleteChapterImages(requestBook, chapter, cachedContent)) {
+            if (!requestBook.isImage && hasCompleteChapterImages(requestBook, chapter, cachedContent)) {
                 waitDownloadSet.remove(chapterIndex)
                 return
             }

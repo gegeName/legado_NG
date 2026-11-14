@@ -12,41 +12,14 @@ import io.legado.app.utils.GSON
 import io.legado.app.ui.book.manga.entities.BaseMangaPage
 import io.legado.features.adapter.MangaReaderFeatures
 import io.legado.features.api.host.ConfigPort
-import io.legado.features.api.manga.PageKey
 import io.legado.features.api.manga.DisplayItem
-import io.legado.features.api.manga.ReaderPage
 import io.legado.features.api.manga.ReaderSessionKey
 import io.legado.features.api.host.ResourcePriority
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import splitties.init.appCtx
 
 object NgMangaReaderBridge {
-    private const val imageDownloadConcurrency = 3
-    private val imageDownloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val imageDownloadRequests = Channel<Unit>(Channel.CONFLATED)
-    private val completedImageChapters = mutableSetOf<Int>()
-    private val imageDownloadLock = Any()
-    private var imageDownloadSession: ReaderSessionKey? = null
-    private var imageDownloadJob: Job? = null
-    private var lastImageDownloadChapter = Int.MIN_VALUE
-    private var imageDownloadStartChapter: Int? = null
-    private var imageDownloadStopped = false
+    private val imageDownloads = MangaReaderFeatures.ImageDownloads()
     val navigation = MangaReaderFeatures.Navigation()
     private val config = object : ConfigPort {
         private val prefs get() = appCtx.getSharedPreferences("feature_modules", Context.MODE_PRIVATE)
@@ -61,40 +34,28 @@ object NgMangaReaderBridge {
     fun updateImageWindow(book: Book, source: BookSource?, current: Int, total: Int, epoch: Long,
                           newlyAvailableChapter: Int? = null) {
         val snapshot = book.copy()
-        val capturedSource = source?.let { GSON.fromJson(GSON.toJson(it), BookSource::class.java) }
-        val session = ReaderSessionKey(book.bookUrl, book.origin, epoch)
-        val shouldScan = synchronized(imageDownloadLock) {
-            if (imageDownloadSession != session) {
-                imageDownloadJob?.cancel()
-                completedImageChapters.clear()
-                lastImageDownloadChapter = Int.MIN_VALUE
-                imageDownloadStartChapter = null
-                imageDownloadStopped = false
-                imageDownloadSession = session
-            }
-            val jumped = lastImageDownloadChapter != Int.MIN_VALUE &&
-                kotlin.math.abs(current - lastImageDownloadChapter) > 1
-            if (jumped) {
-                imageDownloadStartChapter = current
-                imageDownloadJob?.cancel()
-                imageDownloadJob = null
-            }
-            val changed = current != lastImageDownloadChapter || newlyAvailableChapter != null
-            lastImageDownloadChapter = current
-            if (!imageDownloadStopped && imageDownloadJob?.isActive != true) {
-                if (hasExhaustedImageQuota(snapshot.intro)) {
-                    imageDownloadStopped = true
-                    AppLog.put("漫画图片后台预取已暂停：书源图片额度已用尽")
-                } else {
-                    val startChapter = imageDownloadStartChapter
-                    imageDownloadJob = imageDownloadScope.launch {
-                        downloadCachedChapterImages(session, snapshot, capturedSource, startChapter)
-                    }
-                }
-            }
-            changed
+        if (hasExhaustedImageQuota(snapshot.intro)) {
+            imageDownloads.clear()
+            return
         }
-        if (shouldScan) imageDownloadRequests.trySend(Unit)
+        val capturedSource = source?.let { GSON.fromJson(GSON.toJson(it), BookSource::class.java) }
+        val generation = NgOriginalImageResources.generation(book.bookUrl)
+        imageDownloads.update(ReaderSessionKey(book.bookUrl, book.origin, epoch), current, total, newlyAvailableChapter,
+            chapters = { appDb.bookChapterDao.getChapterList(snapshot.bookUrl).map { it.index } },
+            images = { index ->
+                val chapter = appDb.bookChapterDao.getChapter(snapshot.bookUrl, index)
+                val content = chapter?.let { BookHelp.getContent(snapshot, it) }
+                if (chapter == null || content.isNullOrEmpty()) null
+                else BookHelp.flowImages(chapter, content).toList()
+            },
+            download = { url ->
+                NgOriginalImageResources.resolve(snapshot, capturedSource, url, ResourcePriority.PREFETCH,
+                    generation = generation).use { }
+            },
+            report = { chapter, error ->
+                val title = chapter?.let { appDb.bookChapterDao.getChapter(snapshot.bookUrl, it)?.title }
+                AppLog.put(if (title == null) "漫画已缓存章节图片队列失败" else "漫画章节原图预取失败：$title", error)
+            })
     }
     private fun hasExhaustedImageQuota(intro: String?): Boolean {
         val quota = Regex("图片读取/上限\\s*[:：]\\s*(\\d+)\\s*/\\s*(\\d+)").find(intro.orEmpty()) ?: return false
@@ -102,76 +63,8 @@ object NgMangaReaderBridge {
         val limit = quota.groupValues[2].toLongOrNull() ?: return false
         return limit > 0 && used >= limit
     }
-    private suspend fun downloadCachedChapterImages(
-        session: ReaderSessionKey,
-        book: Book,
-        source: BookSource?,
-        startChapter: Int?
-    ) {
-        val permits = Semaphore(imageDownloadConcurrency)
-        while (currentCoroutineContext().isActive) {
-            var failed = false
-            try {
-                val allChapters = appDb.bookChapterDao.getChapterList(book.bookUrl)
-                val chapters = startChapter?.let { start -> allChapters.filter { it.index >= start } } ?: allChapters
-                for (chapter in chapters) {
-                    currentCoroutineContext().ensureActive()
-                    if (synchronized(imageDownloadLock) {
-                            imageDownloadSession != session || chapter.index in completedImageChapters
-                        }) continue
-                    if (!BookHelp.hasContent(book, chapter)) continue
-                    val content = BookHelp.getContent(book, chapter) ?: continue
-                    val urls = BookHelp.flowImages(chapter, content).toList().distinct()
-                    try {
-                        for (batch in urls.chunked(imageDownloadConcurrency)) {
-                            coroutineScope {
-                                batch.map { url ->
-                                    async {
-                                        permits.withPermit {
-                                            currentCoroutineContext().ensureActive()
-                                            NgOriginalImageResources.resolve(book, source, url, ResourcePriority.PREFETCH).use { }
-                                        }
-                                    }
-                                }.awaitAll()
-                            }
-                        }
-                        synchronized(imageDownloadLock) {
-                            if (imageDownloadSession == session) completedImageChapters.add(chapter.index)
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        if (e.message?.contains("图片下载后校验失败") == true) {
-                            synchronized(imageDownloadLock) {
-                                if (imageDownloadSession == session) imageDownloadStopped = true
-                            }
-                            AppLog.put("漫画图片后台预取已暂停：图片接口返回了无效内容", e)
-                            return
-                        }
-                        failed = true
-                        AppLog.put("漫画章节原图预取失败：${chapter.title}", e)
-                        break
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                failed = true
-                AppLog.put("漫画已缓存章节图片队列失败", e)
-            }
-            if (failed) delay(30_000) else imageDownloadRequests.receive()
-        }
-    }
     fun stopImages() {
-        synchronized(imageDownloadLock) {
-            imageDownloadJob?.cancel()
-            imageDownloadJob = null
-            imageDownloadSession = null
-            completedImageChapters.clear()
-            lastImageDownloadChapter = Int.MIN_VALUE
-            imageDownloadStartChapter = null
-            imageDownloadStopped = false
-        }
+        imageDownloads.clear()
         NgMangaTranslationBridge.stopBackground()
     }
     fun invalidateBook(bookId: String) {
