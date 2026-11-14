@@ -133,7 +133,9 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
     })
     val prefetchItems = remember(displayPages) { NgMangaLayout.prefetchItems(displayPages) }
     val displayJump = NgMangaLayout.slot(displayPages, ui.pages.getOrNull(ui.jumpIndex), ui.jumpIndex)
-    val list = rememberLazyListState()
+    val itemPrefetch = remember(ui.bookUrl, ui.sourceOrigin) { MangaListPrefetchStrategy() }
+    val list = rememberLazyListState(prefetchStrategy = itemPrefetch)
+    DisposableEffect(itemPrefetch) { onDispose { itemPrefetch.clear() } }
     val scope = rememberCoroutineScope()
     val latestPage by rememberUpdatedState(onPage)
     val flipController = remember(ui, list) {
