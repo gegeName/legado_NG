@@ -643,6 +643,7 @@ internal class MangaImagePreloader(
     private val sourceOrigin: String? = null,
 ) {
     private val targets = linkedMapOf<String, Target<File?>>()
+    private val nearTargets = mutableSetOf<String>()
     private val metadataTargets = linkedMapOf<String, Target<File?>>()
     private val decodedTargets = linkedMapOf<String, Target<Drawable>>()
     private var decodedTransformationKey: String? = null
@@ -673,15 +674,25 @@ internal class MangaImagePreloader(
         }
         // Keep the visible page target alive while Glide's foreground request takes over.
         // Removing it here cancels an unfinished prefetch exactly when the page becomes visible.
-        val networkUrls = plan.network.map { it.resource }.toSet()
+        // Keep the planner order: the first resources are the pages the user will reach soonest.
+        val networkUrls = plan.network.map { it.resource }.distinct()
         val retainedUrls = NgMangaLayout.retainedPrefetchResources(pages, position, networkUrls)
         val iterator = targets.iterator()
         while (iterator.hasNext()) {
             val entry = iterator.next()
-            if (entry.key !in retainedUrls) { Glide.with(context).clear(entry.value); iterator.remove() }
+            if (entry.key !in retainedUrls) {
+                Glide.with(context).clear(entry.value)
+                iterator.remove()
+                nearTargets.remove(entry.key)
+            }
         }
-        for (url in networkUrls) if (url !in targets) {
-            targets[url] = request(url).preload()
+        for ((index, url) in networkUrls.withIndex()) {
+            val near = index < HOT_PREFETCH_COUNT
+            if (url in targets && (!near || url in nearTargets)) continue
+            // Subscribe at the new priority before releasing the previous target.
+            val replacement = request(url, nearPrefetch = near).preload()
+            targets.put(url, replacement)?.let { Glide.with(context).clear(it) }
+            if (near) nearTargets.add(url)
         }
 
         // Decode only the imminent images so a fast fling can reuse Glide's memory resource.
@@ -712,8 +723,9 @@ internal class MangaImagePreloader(
             }
         }
     }
-    private fun request(url: String): RequestBuilder<File?> {
-        val request = BookCover.preloadManga(context, url, sourceOrigin = sourceOrigin ?: ReadManga.book?.origin)
+    private fun request(url: String, nearPrefetch: Boolean = false): RequestBuilder<File?> {
+        var request = BookCover.preloadManga(context, url, sourceOrigin = sourceOrigin ?: ReadManga.book?.origin)
+        if (nearPrefetch) request = request.set(NgOriginalImageResources.nearPrefetchOption, true)
         if (imageRatios == null || scope == null) return request
         val snapshot = ReadManga.book?.takeIf { sourceOrigin == null || it.origin == sourceOrigin }?.let { NgOriginalImageResources.request(it, sourceOrigin, url) }
         return request.addListener(object : RequestListener<File?> {
@@ -737,11 +749,14 @@ internal class MangaImagePreloader(
     }
     fun clear() {
         (targets.values + metadataTargets.values + decodedTargets.values).forEach { Glide.with(context).clear(it) }
-        targets.clear(); metadataTargets.clear(); decodedTargets.clear()
+        targets.clear(); nearTargets.clear(); metadataTargets.clear(); decodedTargets.clear()
         decodedTransformationKey = null
     }
 
     private fun Transformation<Bitmap>.key(): String = "${javaClass.name}:${hashCode()}"
 
-    private companion object { const val DECODE_AHEAD_COUNT = 2 }
+    private companion object {
+        const val HOT_PREFETCH_COUNT = 2
+        const val DECODE_AHEAD_COUNT = 3
+    }
 }

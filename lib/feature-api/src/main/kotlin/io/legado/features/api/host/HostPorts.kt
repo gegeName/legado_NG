@@ -26,7 +26,7 @@ interface FileLease : Closeable {
     val version: String
 }
 
-enum class ResourcePriority { VISIBLE, USER_REQUEST, PREFETCH }
+enum class ResourcePriority { VISIBLE, USER_REQUEST, NEAR_PREFETCH, PREFETCH }
 
 interface ImageResourceResolver {
     suspend fun resolve(key: ImageResourceKey, priority: ResourcePriority): FileLease

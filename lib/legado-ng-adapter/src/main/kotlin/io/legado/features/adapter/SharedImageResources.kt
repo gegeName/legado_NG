@@ -45,7 +45,7 @@ class SharedImageResources(
     override suspend fun resolve(key: ImageResourceKey, priority: ResourcePriority): FileLease = resolve(key, priority) { true }
 
     suspend fun resolve(key: ImageResourceKey, priority: ResourcePriority, isCurrent: () -> Boolean): FileLease {
-        require(priority != ResourcePriority.PREFETCH || maxPrefetch > 0) { "后台图片预取已关闭" }
+        require(!priority.isBackgroundPrefetch() || maxPrefetch > 0) { "后台图片预取已关闭" }
         currentCoroutineContext().ensureActive()
         val entry = synchronized(monitor) {
             check(!closed) { "图片资源层已关闭" }
@@ -99,9 +99,9 @@ class SharedImageResources(
         while (!closed && active < maxConcurrent) {
             val next = entries.values.asSequence().filter {
                 it.subscribers > 0 && it.job == null && !it.result.isCompleted &&
-                    (it.priority != ResourcePriority.PREFETCH || background < maxPrefetch)
+                    (!it.priority.isBackgroundPrefetch() || background < maxPrefetch)
             }.minWithOrNull(compareBy<Entry> { it.priority.ordinal }.thenBy { it.order }) ?: break
-            val isBackground = next.priority == ResourcePriority.PREFETCH
+            val isBackground = next.priority.isBackgroundPrefetch()
             active++
             if (isBackground) background++
             next.job = scope.launch(start = CoroutineStart.ATOMIC) { execute(next, isBackground) }
@@ -206,4 +206,7 @@ class SharedImageResources(
             leaseChanged.complete(Unit)
         }
     }
+
+    private fun ResourcePriority.isBackgroundPrefetch() =
+        this == ResourcePriority.NEAR_PREFETCH || this == ResourcePriority.PREFETCH
 }

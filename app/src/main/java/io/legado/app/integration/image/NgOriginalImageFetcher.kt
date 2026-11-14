@@ -16,6 +16,7 @@ abstract class NgOriginalResourceFetcher<T : Any>(
     private val request: NgOriginalImageResources.Request,
     private val wifiOnly: Boolean,
     private val cacheOnly: Boolean,
+    private val nearPrefetch: Boolean,
 ) : DataFetcher<T> {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val monitor = Any()
@@ -29,7 +30,12 @@ abstract class NgOriginalResourceFetcher<T : Any>(
             var acquired: FileLease? = null
             var opened: T? = null
             try {
-                acquired = NgOriginalImageResources.resolve(request, if (priority == Priority.LOW) ResourcePriority.PREFETCH else ResourcePriority.VISIBLE,
+                val resourcePriority = when {
+                    nearPrefetch -> ResourcePriority.NEAR_PREFETCH
+                    priority == Priority.LOW -> ResourcePriority.PREFETCH
+                    else -> ResourcePriority.VISIBLE
+                }
+                acquired = NgOriginalImageResources.resolve(request, resourcePriority,
                     allowNetwork = !cacheOnly && (!wifiOnly || appCtx.isWifiConnect))
                 ensureActive()
                 opened = open(acquired.file)
@@ -56,15 +62,15 @@ abstract class NgOriginalResourceFetcher<T : Any>(
     override fun getDataSource() = DataSource.LOCAL
 }
 
-class NgOriginalImageFetcher(request: NgOriginalImageResources.Request, wifiOnly: Boolean, cacheOnly: Boolean = false) :
-    NgOriginalResourceFetcher<InputStream>(request, wifiOnly, cacheOnly) {
+class NgOriginalImageFetcher(request: NgOriginalImageResources.Request, wifiOnly: Boolean, cacheOnly: Boolean = false, nearPrefetch: Boolean = false) :
+    NgOriginalResourceFetcher<InputStream>(request, wifiOnly, cacheOnly, nearPrefetch) {
     override fun open(file: File) = file.inputStream()
     override fun close(data: InputStream) = data.close()
     override fun getDataClass() = InputStream::class.java
 }
 
-class NgOriginalImageFileFetcher(request: NgOriginalImageResources.Request, wifiOnly: Boolean, cacheOnly: Boolean) :
-    NgOriginalResourceFetcher<File>(request, wifiOnly, cacheOnly) {
+class NgOriginalImageFileFetcher(request: NgOriginalImageResources.Request, wifiOnly: Boolean, cacheOnly: Boolean, nearPrefetch: Boolean = false) :
+    NgOriginalResourceFetcher<File>(request, wifiOnly, cacheOnly, nearPrefetch) {
     override fun open(file: File) = file
     override fun getDataClass() = File::class.java
 }

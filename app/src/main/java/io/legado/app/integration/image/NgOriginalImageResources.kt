@@ -39,6 +39,7 @@ object NgOriginalImageResources {
     )
     val requestOption: Option<Request> = Option.memory("legadoFeatures.originalImage")
     val cacheOnlyOption: Option<Boolean> = Option.memory("legadoFeatures.originalCacheOnly", false)
+    val nearPrefetchOption: Option<Boolean> = Option.memory("legadoFeatures.nearPrefetch", false)
     private data class Recipe(val book: Book, val source: BookSource?, val url: String, val target: File, var users: Int = 0)
     private val recipes = mutableMapOf<ImageResourceKey, Recipe>()
     private fun recipe(key: ImageResourceKey) = synchronized(recipes) { checkNotNull(recipes[key]) { "图片请求快照已释放" } }
@@ -153,7 +154,8 @@ object NgOriginalImageResources {
     fun hasCachedImage(book: Book, url: String): Boolean =
         getCachedBookImage(BookHelp.getImage(book, url)) != null
     fun fetcher(options: Options): NgOriginalImageFetcher? = options.get(requestOption)?.let {
-        NgOriginalImageFetcher(it, options.get(OkHttpModelLoader.loadOnlyWifiOption) == true, options.get(cacheOnlyOption) == true)
+        NgOriginalImageFetcher(it, options.get(OkHttpModelLoader.loadOnlyWifiOption) == true,
+            options.get(cacheOnlyOption) == true, options.get(nearPrefetchOption) == true)
     }
     suspend fun resolve(book: Book, source: BookSource?, url: String, priority: ResourcePriority, allowNetwork: Boolean = true, generation: Long = shared.generation(book.bookUrl)): FileLease {
       var acquired: FileLease? = null
