@@ -118,25 +118,35 @@ internal fun ExploreShowScreen(
         } else {
             kindSections.sections
         }
-    val sectionRows = visibleSections.map { section ->
-        section to calculateExploreDetailKindRows(section.items)
+    val sectionRows = remember(visibleSections) {
+        visibleSections.map { section ->
+            section to calculateExploreDetailKindRows(section.items)
+        }
     }
-    val controlRows = calculateExploreDetailKindRows(kindSections.controls)
+    val controlRows = remember(kindSections.controls) {
+        calculateExploreDetailKindRows(kindSections.controls)
+    }
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
-    val currentPage by remember(gridState, state.bookPages, state.firstLoadedPage) {
+    val currentPage by remember(gridState, state.books, state.bookPages, state.firstLoadedPage) {
         derivedStateOf {
-            val visibleBooks = gridState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
-                val key = item.key as? String
-                val page = key?.removePrefix("list_")?.removePrefix("grid_")
-                    ?.let(state.bookPages::get)
-                page?.let { item.offset.y to it }
+            var firstRow: Int? = null
+            var page = state.firstLoadedPage
+            for (item in gridState.layoutInfo.visibleItemsInfo) {
+                val book = state.books.getOrNull(item.index) ?: continue
+                val bookPage = state.bookPages[book.bookUrl] ?: continue
+                if (firstRow == null) {
+                    firstRow = item.offset.y
+                    page = bookPage
+                } else if (item.offset.y != firstRow) {
+                    break
+                } else {
+                    page = maxOf(page, bookPage)
+                }
             }
             // A grid row may straddle two source pages. Use its later page so
             // navigating to a cached boundary cannot get stuck on the same row.
-            val firstRow = visibleBooks.firstOrNull()?.first
-            visibleBooks.takeWhile { it.first == firstRow }.maxOfOrNull { it.second }
-                ?: state.firstLoadedPage
+            page
         }
     }
     val lastBookPage = remember(state.bookPages) { state.bookPages.values.maxOrNull() ?: 0 }
@@ -268,6 +278,7 @@ internal fun ExploreShowScreen(
                             items(
                                 items = state.books,
                                 key = { "list_${it.bookUrl}" },
+                                contentType = { "book_list" },
                                 span = { GridItemSpan(maxLineSpan) }
                             ) { book ->
                                 Column {
@@ -296,7 +307,8 @@ internal fun ExploreShowScreen(
                         } else {
                             items(
                                 items = state.books,
-                                key = { "grid_${it.bookUrl}" }
+                                key = { "grid_${it.bookUrl}" },
+                                contentType = { "book_grid" }
                             ) { book ->
                                 ExploreBookGridCard(
                                     book = book,

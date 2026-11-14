@@ -35,12 +35,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -74,6 +76,8 @@ import io.legado.app.model.BookCover
 import io.legado.app.ui.design.theme.NgTheme
 import io.legado.app.utils.textHeight
 import io.legado.app.utils.toStringArray
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val SearchCardTextStyle: TextStyle
     @Composable
@@ -319,10 +323,21 @@ internal fun SearchBookCover(
         listOf(cleanName, cleanAuthor).filter { it.isNotEmpty() }.joinToString("\u0000")
             .ifEmpty { book.coverUrl }
     }
-    val defaultBitmap = remember(defaultSeed, widthPx, heightPx, AppConfig.isNightTheme) {
-        BookCover.getDefaultDrawable(defaultSeed).toBitmap(widthPx, heightPx).asImageBitmap()
+    val isNightTheme = AppConfig.isNightTheme
+    val defaultBitmap by produceState<ImageBitmap?>(
+        initialValue = null,
+        key1 = defaultSeed,
+        key2 = widthPx to heightPx,
+        key3 = isNightTheme
+    ) {
+        value = withContext(Dispatchers.IO) {
+            BookCover.getDefaultDrawable(defaultSeed, isNightTheme)
+                .toBitmap(widthPx, heightPx).asImageBitmap()
+        }
     }
-    var cover by remember(book.coverUrl, defaultSeed) { mutableStateOf(defaultBitmap) }
+    var cover by remember(book.coverUrl, defaultSeed, widthPx, heightPx, isNightTheme) {
+        mutableStateOf<ImageBitmap?>(null)
+    }
     var showNameOverlay by remember(book.coverUrl, defaultSeed) {
         mutableStateOf(BookCover.drawBookName)
     }
@@ -334,12 +349,13 @@ internal fun SearchBookCover(
         defaultSeed,
         widthPx,
         heightPx,
+        defaultBitmap,
         AppConfig.loadCoverOnlyWifi,
         AppConfig.useDefaultCover
     ) {
         cover = defaultBitmap
         showNameOverlay = BookCover.drawBookName
-        if (AppConfig.useDefaultCover) {
+        if (AppConfig.useDefaultCover || defaultBitmap == null) {
             onDispose { }
         } else {
             val target = object : CustomTarget<Drawable>(widthPx, heightPx) {
@@ -369,12 +385,14 @@ internal fun SearchBookCover(
     }
 
     Box(modifier.clip(RoundedCornerShape(coverRadius))) {
-        Image(
-            bitmap = cover,
-            contentDescription = context.getString(R.string.img_cover),
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+        cover?.let { bitmap ->
+            Image(
+                bitmap = bitmap,
+                contentDescription = context.getString(R.string.img_cover),
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
         if (showNameOverlay && cleanName.isNotEmpty()) {
             CoverNameOverlay(cleanName, cleanAuthor)
         }

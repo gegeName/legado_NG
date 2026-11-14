@@ -313,6 +313,9 @@ class BookInfoActivity :
             upLoading(false, it)
             upCacheProgress(viewModel.getBook(false), it)
         }
+        viewModel.refreshFinished.observe(this) {
+            upLoading(false, viewModel.chapterListData.value)
+        }
         viewModel.otherWorksData.observe(this) { showOtherWorks(it) }
         viewModel.otherWorksLoadingData.observe(this) {
             uiState = uiState.copy(otherWorksLoading = it)
@@ -515,8 +518,8 @@ class BookInfoActivity :
     }
 
     private fun toggleSplitLongChapter() {
-        upLoading(true)
         viewModel.getBook()?.let { current ->
+            upLoading(true)
             val enabled = !current.getSplitLongChapter()
             current.setSplitLongChapter(enabled)
             updateBookSnapshot(current)
@@ -594,8 +597,8 @@ class BookInfoActivity :
     }
 
     private fun refreshToc() {
-        upLoading(true)
         viewModel.getBook()?.let {
+            upLoading(true)
             viewModel.loadChapter(it, true, isFromBookInfo = true)
         }
     }
@@ -1191,6 +1194,9 @@ class BookInfoActivity :
     }
 
     private fun upLoading(isLoading: Boolean, chapterList: List<BookChapter>? = null) {
+        if (!isLoading) {
+            uiState = uiState.copy(isRefreshing = false)
+        }
         when {
             isLoading -> {
                 uiState = uiState.copy(

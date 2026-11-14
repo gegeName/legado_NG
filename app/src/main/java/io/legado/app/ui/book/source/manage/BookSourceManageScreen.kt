@@ -55,6 +55,7 @@ import io.legado.app.R
 import io.legado.app.constant.AppPattern
 import io.legado.app.constant.BookSourceType
 import io.legado.app.data.entities.BookSourcePart
+import io.legado.app.help.config.NgVisualSystem
 import io.legado.app.model.CheckSourceTaskState
 import io.legado.app.model.CheckSourceTaskStatus
 import io.legado.app.ui.design.components.compose.NgExpandableActionMenu
@@ -814,29 +815,38 @@ private fun BookSourceFlatList(
         itemsIndexed(
             items = orderedSources,
             key = { _, source -> source.bookSourceUrl },
+            contentType = { _, _ -> "source" },
         ) { index, source ->
-            ReorderableItem(
-                state = reorderState,
-                key = source.bookSourceUrl,
-            ) { _ ->
-                val sortDescription = stringResource(R.string.sort)
-                BookSourceManageRow(
-                    source = source,
-                    selected = source.bookSourceUrl in selectedUrls,
-                    showDivider = index < orderedSources.lastIndex,
-                    manualSort = canReorder,
-                    onAction = onAction,
-                    modifier = Modifier,
-                    bodyDragModifier = if (canReorder) {
-                        Modifier
+            if (canReorder) {
+                ReorderableItem(
+                    state = reorderState,
+                    key = source.bookSourceUrl,
+                ) { _ ->
+                    val sortDescription = stringResource(R.string.sort)
+                    BookSourceManageRow(
+                        source = source,
+                        selected = source.bookSourceUrl in selectedUrls,
+                        showDivider = index < orderedSources.lastIndex,
+                        manualSort = true,
+                        onAction = onAction,
+                        modifier = Modifier,
+                        bodyDragModifier = Modifier
                             .longPressDraggableHandle(
                                 onDragStarted = { isReordering = true },
                                 onDragStopped = { currentOnDragStopped() },
                             )
-                            .semantics { contentDescription = sortDescription }
-                    } else {
-                        null
-                    },
+                            .semantics { contentDescription = sortDescription },
+                    )
+                }
+            } else {
+                BookSourceManageRow(
+                    source = source,
+                    selected = source.bookSourceUrl in selectedUrls,
+                    showDivider = index < orderedSources.lastIndex,
+                    manualSort = false,
+                    onAction = onAction,
+                    modifier = Modifier,
+                    bodyDragModifier = null,
                 )
             }
         }
@@ -893,7 +903,7 @@ private fun BookSourceGroupedList(
         modifier = Modifier.fillMaxSize(),
     ) {
         sections.forEach { section ->
-            item(key = "section:${section.key}") {
+            item(key = "section:${section.key}", contentType = "section_header") {
                 BookSourceSectionHeader(
                     section = section,
                     expanded = section.key in expandedSections,
@@ -906,6 +916,7 @@ private fun BookSourceGroupedList(
                 items(
                     items = section.sources,
                     key = { source -> "${section.key}:${source.bookSourceUrl}" },
+                    contentType = { "source" },
                 ) { source ->
                     BookSourceManageRow(
                         source = source,
@@ -944,6 +955,7 @@ private fun BookSourceSectionHeader(
             cornerRadius = 10.dp,
             shape = cardShape,
             style = cardStyle,
+            visualSystemOverride = NgVisualSystem.TRANSPARENT_GLASS,
         ) {
             Row(
                 modifier = Modifier
@@ -1046,6 +1058,7 @@ private fun BookSourceManageRow(
     bodyDragModifier: Modifier?,
 ) {
     val menuState = remember(source.bookSourceUrl) { NgPopupToggleState() }
+    var menuCreated by remember(source.bookSourceUrl) { mutableStateOf(false) }
     val titleColor = Color(NgTheme.colors.onSurface).copy(
         alpha = if (source.enabled) 1f else 0.52f,
     )
@@ -1154,7 +1167,10 @@ private fun BookSourceManageRow(
                                 Color.Transparent
                             }
                         )
-                        .clickable { menuState.onAnchorClick() },
+                        .clickable {
+                            menuCreated = true
+                            menuState.onAnchorClick()
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1168,25 +1184,30 @@ private fun BookSourceManageRow(
                         modifier = Modifier.size(20.dp),
                     )
                 }
-                NgExpandableActionMenu(
-                    expanded = menuState.expanded,
-                    onDismissRequest = menuState::onDismissRequest,
-                    items = sourceMenuItems(source, manualSort),
-                    onItemClick = {
-                        menuState.close()
-                        onAction(
-                            when (it.itemId) {
-                                R.id.menu_edit -> BookSourceManageAction.Edit(source)
-                                R.id.menu_top -> BookSourceManageAction.Top(source)
-                                R.id.menu_bottom -> BookSourceManageAction.Bottom(source)
-                                R.id.menu_login -> BookSourceManageAction.Login(source)
-                                R.id.menu_search -> BookSourceManageAction.Search(source)
-                                R.id.menu_debug_source -> BookSourceManageAction.Debug(source)
-                                else -> BookSourceManageAction.Delete(source)
-                            }
-                        )
-                    },
-                )
+                if (menuCreated) {
+                    val menuItems = remember(source.hasSearchUrl, source.hasLoginUrl, manualSort) {
+                        sourceMenuItems(source, manualSort)
+                    }
+                    NgExpandableActionMenu(
+                        expanded = menuState.expanded,
+                        onDismissRequest = menuState::onDismissRequest,
+                        items = menuItems,
+                        onItemClick = {
+                            menuState.close()
+                            onAction(
+                                when (it.itemId) {
+                                    R.id.menu_edit -> BookSourceManageAction.Edit(source)
+                                    R.id.menu_top -> BookSourceManageAction.Top(source)
+                                    R.id.menu_bottom -> BookSourceManageAction.Bottom(source)
+                                    R.id.menu_login -> BookSourceManageAction.Login(source)
+                                    R.id.menu_search -> BookSourceManageAction.Search(source)
+                                    R.id.menu_debug_source -> BookSourceManageAction.Debug(source)
+                                    else -> BookSourceManageAction.Delete(source)
+                                }
+                            )
+                        },
+                    )
+                }
             }
             Spacer(Modifier.width(4.dp))
         }
@@ -1200,7 +1221,6 @@ private fun BookSourceManageRow(
     }
 }
 
-@Composable
 private fun sourceMenuItems(
     source: BookSourcePart,
     manualSort: Boolean,

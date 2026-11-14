@@ -62,6 +62,7 @@ import java.util.concurrent.ConcurrentHashMap
 class BookInfoViewModel(application: Application) : BaseViewModel(application) {
     val bookData = MutableLiveData<Book>()
     val chapterListData = MutableLiveData<List<BookChapter>>()
+    val refreshFinished = MutableLiveData<Unit>()
     val otherWorksData = MutableLiveData<OtherWorksState>(OtherWorksState.Idle)
     val otherWorksLoadingData = MutableLiveData(false)
     val bookshelfChanged = MutableLiveData<Unit>()
@@ -476,6 +477,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
                 }.onError {
                     AppLog.put("获取书籍信息失败\n${it.localizedMessage}", it)
                     context.toastOnUi(R.string.error_get_book_info)
+                    refreshFinished.postValue(Unit)
                 }
         }
     }
@@ -507,6 +509,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
                 }
             }.onError {
                 context.toastOnUi("LoadTocError:${it.localizedMessage}")
+                refreshFinished.postValue(Unit)
             }
         } else {
             val bookSource = bookSource ?: let {
@@ -576,6 +579,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
             }
         }.onError {
             context.toastOnUi("LoadWebFileError\n${it.localizedMessage}")
+            refreshFinished.postValue(Unit)
         }.onSuccess {
             webFiles.addAll(it)
             book.latestChapterTitle = "已下载"

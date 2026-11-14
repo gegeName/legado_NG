@@ -66,6 +66,7 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.data.entities.rule.ExploreKind
 import io.legado.app.data.entities.rule.ExploreKind.Type
+import io.legado.app.help.config.NgVisualSystem
 import io.legado.app.help.source.ExploreKindRenderRole
 import io.legado.app.help.source.isSupportedExploreKind
 import io.legado.app.help.source.renderRole
@@ -329,7 +330,13 @@ private fun ExploreSourceList(
         contentPadding = PaddingValues(bottom = bottomInset + 12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        itemsIndexed(sources, key = { _, item -> item.bookSourceUrl }) { _, source ->
+        itemsIndexed(
+            items = sources,
+            key = { _, item -> item.bookSourceUrl },
+            contentType = { _, item ->
+                if (item.bookSourceUrl == expandedSourceUrl) "expanded_source" else "source"
+            }
+        ) { _, source ->
             ExploreListSourceItem(
                 source = source,
                 expanded = source.bookSourceUrl == expandedSourceUrl,
@@ -403,6 +410,7 @@ private fun ExploreListSourceItem(
                 cornerRadius = 12.dp,
                 shape = cardShape,
                 style = cardStyle,
+                visualSystemOverride = NgVisualSystem.TRANSPARENT_GLASS,
             ) {
                 Row(
                     modifier = Modifier

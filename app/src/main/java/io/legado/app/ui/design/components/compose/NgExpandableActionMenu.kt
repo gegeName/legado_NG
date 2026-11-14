@@ -182,10 +182,10 @@ fun NgExpandableActionMenu(
     widthVariant: NgExpandableActionMenuWidthVariant =
         NgExpandableActionMenuWidthVariant.CONTENT,
 ) {
-    val contentWidth = rememberNgExpandableActionMenuContentWidth(items)
     val pane = LocalNgPaneBounds.current
     val density = LocalDensity.current
-    val requestedWidth = width ?: widthVariant.width ?: contentWidth
+    val requestedWidth = width ?: widthVariant.width
+        ?: rememberNgExpandableActionMenuContentWidth(items)
     val resolvedWidth = if (pane == null) requestedWidth else requestedWidth.coerceAtMost(
         (with(density) { pane.width.toDp() } - 16.dp).coerceAtLeast(1.dp)
     )
