@@ -130,8 +130,8 @@ fun VideoPlayerScreen(
                                 Modifier.weight(1f), color = Color.White, fontSize = 16.sp,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                             else Spacer(Modifier.weight(1f))
-                            if (mode == VideoPresentation.IMMERSIVE && !locked) VideoIcon(R.drawable.ic_fullscreen, "窗口",
-                                { onMode(VideoPresentation.WINDOW) })
+                            if (mode == VideoPresentation.IMMERSIVE && !locked) VideoIcon(R.drawable.ic_fullscreen, "全屏",
+                                { onMode(VideoPresentation.FULLSCREEN) })
                             if (!locked) Box {
                                 VideoIcon(R.drawable.ic_more_vert, "更多", { more = true })
                                 NgExpandableActionMenu(more, { more = false }, videoMoreItems(), { item ->

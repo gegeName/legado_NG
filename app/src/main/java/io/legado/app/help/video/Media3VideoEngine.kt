@@ -144,6 +144,7 @@ internal class Media3VideoEngine {
         listener = value
         standbyBudget?.activate()
         NgVideoBridge.enhance(current)
+        updateVideoOutputResolution(current)
         current.volume = 1f
         current.setPlaybackSpeed(speed)
         value.onInfo(if (current.playbackState == Player.STATE_BUFFERING) 701 else 702, 0)
@@ -161,10 +162,14 @@ internal class Media3VideoEngine {
         outputHeight = height
         val current = player ?: return
         current.setVideoSurface(surface)
-        if (surface != null && width > 0 && height > 0) {
+        updateVideoOutputResolution(current)
+    }
+
+    private fun updateVideoOutputResolution(current: ExoPlayer) {
+        if (outputWidth > 0 && outputHeight > 0) {
             for (index in 0 until current.rendererCount) if (current.getRendererType(index) == C.TRACK_TYPE_VIDEO) {
                 current.createMessage(current.getRenderer(index)).setType(Renderer.MSG_SET_VIDEO_OUTPUT_RESOLUTION)
-                    .setPayload(Size(width, height)).send()
+                    .setPayload(Size(outputWidth, outputHeight)).send()
             }
         }
     }

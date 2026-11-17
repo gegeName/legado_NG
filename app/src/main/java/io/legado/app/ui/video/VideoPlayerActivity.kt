@@ -107,7 +107,6 @@ class VideoPlayerActivity : VMBaseActivity<ComposeActivityBinding, VideoPlayerVi
     private var showShelfConfirm by mutableStateOf(false)
     private var pendingFloat = false
     private var handedOff = false
-    private var pendingVideoOrientation = false
     private var orientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     private var windowedCutoutMode: Int? = null
     private var immersiveWindowApplied = false
@@ -170,7 +169,7 @@ class VideoPlayerActivity : VMBaseActivity<ComposeActivityBinding, VideoPlayerVi
             VideoPlay.startPlay(VideoPlaybackBridge)
             if (!VideoPlay.singleUrl) VideoPlay.saveRead(VideoPlay.durChapterPos)
         }
-        // 首次组合前确定窗口模式，解码器准备完成后只更新全屏方向。
+        // 首次组合前确定模式；全屏方向由用户选择决定，不等待解码器尺寸。
         val savedPresentation = savedInstanceState?.getString("videoPresentation")?.let {
             runCatching { VideoPresentation.valueOf(it) }.getOrNull()
         }
@@ -227,9 +226,6 @@ class VideoPlayerActivity : VMBaseActivity<ComposeActivityBinding, VideoPlayerVi
             VideoPlaybackBridge.state.collect { state ->
                 if (state.playing || state.preparing) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                if (pendingVideoOrientation && state.prepared && state.width > 0 && state.height > 0) {
-                    changePresentation(presentation)
-                }
             }
         }
     }
@@ -258,17 +254,11 @@ class VideoPlayerActivity : VMBaseActivity<ComposeActivityBinding, VideoPlayerVi
         }
         presentation = mode
         setupSystemBar()
-        val playback = VideoPlaybackBridge.state.value
-        pendingVideoOrientation = mode == VideoPresentation.FULLSCREEN &&
-            !(playback.prepared && playback.width > 0 && playback.height > 0)
+        // “全屏”明确进入横屏；竖屏沉浸由独立的“竖屏”入口负责。
         requestedOrientation = when (mode) {
             VideoPresentation.WINDOW -> orientation
             VideoPresentation.IMMERSIVE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            VideoPresentation.FULLSCREEN -> when {
-                pendingVideoOrientation -> requestedOrientation
-                playback.aspect < 1f / 1.2f -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            }
+            VideoPresentation.FULLSCREEN -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
     }
     @Suppress("DEPRECATION")
