@@ -143,7 +143,7 @@ internal fun VideoSettingsValueRow(title: String, value: String, summary: String
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             VideoSettingsLabel(title, summary)
-            Text(value, color = Color(NgTheme.colors.secondary), fontSize = 13.sp, lineHeight = 19.sp)
+            Text(value, color = Color(NgTheme.colors.primary), fontSize = 13.sp, lineHeight = 19.sp)
         }
         Icon(painterResource(R.drawable.ic_chevron_right_20), null, Modifier.size(20.dp),
             tint = Color(NgTheme.colors.onSurfaceVariant))
@@ -177,11 +177,11 @@ internal fun VideoSettingsSelectRow(
                 DropdownMenuItem(
                     modifier = Modifier.heightIn(min = 48.dp).semantics { selected = isSelected },
                     text = {
-                        Text(option.label, color = Color(if (isSelected) NgTheme.colors.secondary else NgTheme.colors.onSurface),
+                        Text(option.label, color = Color(if (isSelected) NgTheme.colors.primary else NgTheme.colors.onSurface),
                             fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal)
                     },
                     trailingIcon = {
-                        if (isSelected) Text("✓", color = Color(NgTheme.colors.secondary))
+                        if (isSelected) Text("✓", color = Color(NgTheme.colors.primary))
                     },
                     onClick = {
                         expanded = false
