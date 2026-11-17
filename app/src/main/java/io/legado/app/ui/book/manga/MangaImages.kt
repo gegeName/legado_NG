@@ -635,7 +635,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                         progress >= 100 -> "正在准备画面"
                         else -> "正在加载画面"
                     },
-                    progress = progress.takeIf { it in 0..99 }?.div(100f),
+                    progress = progress.takeIf { it in 0..100 }?.div(100f),
                     layout = loadingLayout,
                     status = if (failed) NgLoadingStatus.ERROR else NgLoadingStatus.LOADING,
                     surface = NgLoadingSurface.MANGA,

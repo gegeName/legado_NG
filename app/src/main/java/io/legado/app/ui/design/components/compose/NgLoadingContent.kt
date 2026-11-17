@@ -54,7 +54,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.legado.app.R
 import io.legado.app.ui.design.theme.NgTheme
-import kotlin.math.roundToInt
 
 enum class NgLoadingLayout { CENTERED, INLINE }
 enum class NgLoadingSurface { THEME, MANGA }
@@ -103,11 +102,9 @@ fun NgLoadingContent(
         NgBookLoadingIndicator(
             modifier = Modifier.size(if (inline) 28.dp else 80.dp),
             accent = accent,
-            foreground = foreground,
             progress = fraction,
             status = status,
             animate = animate,
-            layout = layout,
         )
     }
 
@@ -117,10 +114,7 @@ fun NgLoadingContent(
             horizontalAlignment = if (inline) Alignment.Start else Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(if (inline) 3.dp else 8.dp),
         ) {
-            val label = if (inline && fraction != null && status == NgLoadingStatus.LOADING) {
-                "$title · ${(fraction * 100).roundToInt()}%"
-            } else title
-            Text(label, color = foreground, fontSize = if (inline) 14.sp else 16.sp,
+            Text(title, color = foreground, fontSize = if (inline) 14.sp else 16.sp,
                 fontWeight = FontWeight.Medium, textAlign = if (inline) TextAlign.Start else TextAlign.Center)
             if (!subtitle.isNullOrBlank()) Text(subtitle, color = secondary, fontSize = 12.sp,
                 textAlign = if (inline) TextAlign.Start else TextAlign.Center)
@@ -163,13 +157,11 @@ fun NgLoadingContent(
 private fun NgBookLoadingIndicator(
     modifier: Modifier,
     accent: Color,
-    foreground: Color,
     progress: Float?,
     status: NgLoadingStatus,
     animate: Boolean,
-    layout: NgLoadingLayout,
 ) {
-    val phase = if (animate && status == NgLoadingStatus.LOADING && progress == null) {
+    val phase = if (animate && status == NgLoadingStatus.LOADING) {
         rememberInfiniteTransition(label = "book_loading").animateFloat(0f, 360f,
             infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "book_loading_rotation")
     } else null
@@ -177,6 +169,11 @@ private fun NgBookLoadingIndicator(
         animationSpec = tween(if (animate) 180 else 0), label = "book_loading_progress")
     val sweep = remember(accent) {
         Brush.sweepGradient(0f to accent.copy(alpha = .05f), .75f to accent, 1f to accent)
+    }
+    val progressSweep = remember(accent) {
+        // A visible filled arc with a seamless moving highlight, including at full progress.
+        Brush.sweepGradient(0f to accent.copy(alpha = .6f), .65f to accent.copy(alpha = .6f),
+            .85f to accent, 1f to accent.copy(alpha = .6f))
     }
     val book = remember {
         Path().apply {
@@ -209,22 +206,27 @@ private fun NgBookLoadingIndicator(
                 drawCircle(accent, stroke / 2, center + Offset(0f, 14 * u))
             } else {
                 if (progress != null) {
-                    drawArc(accent, -90f, displayedProgress.value * 360f, false, topLeft, ringSize, style = style)
+                    val rotation = phase?.value ?: 0f
+                    val sweepAngle = displayedProgress.value * 360f
+                    if (sweepAngle > 0f) rotate(rotation) {
+                        // Counter-rotate geometry: only the gradient moves; the actual progress stays anchored at twelve.
+                        if (sweepAngle >= 360f) {
+                            drawCircle(progressSweep, diameter / 2, style = style)
+                        } else {
+                            drawArc(progressSweep, -90f - rotation, sweepAngle, false, topLeft, ringSize, style = style)
+                        }
+                    }
                 } else {
                     // Read animation only during drawing, avoiding per-frame layout/recomposition.
                     rotate(phase?.value ?: -45f) {
                         drawArc(sweep, 0f, 270f, false, topLeft, ringSize, style = style)
                     }
-                    val scale = size.minDimension / 80 * .7f
-                    withTransform({ translate(center.x, center.y); scale(scale, scale, Offset.Zero) }) {
-                        drawPath(book, accent, style = Stroke(2.4f, cap = StrokeCap.Round))
-                    }
+                }
+                val scale = size.minDimension / 80 * .7f
+                withTransform({ translate(center.x, center.y); scale(scale, scale, Offset.Zero) }) {
+                    drawPath(book, accent, style = Stroke(2.4f, cap = StrokeCap.Round))
                 }
             }
-        }
-        if (progress != null && status == NgLoadingStatus.LOADING && layout == NgLoadingLayout.CENTERED) {
-            Text("${(progress * 100).roundToInt()}%", color = foreground,
-                fontSize = 18.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
