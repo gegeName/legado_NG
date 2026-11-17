@@ -99,6 +99,7 @@ object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
     private var ticker: Job? = null
     private var dimensionFallback: Job? = null
     private var hasPlaybackPosition = false
+    private var dimensionsForEnhancementRestart: Triple<Int, Int, Int>? = null
     private var playWhenReady = true
     private var selectedSpeed = 1f
     private val connectivity get() = appCtx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -147,7 +148,15 @@ object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
     override fun loadError(message: String) {
         ticker?.cancel()
         networkRetry?.cancel()
+        dimensionsForEnhancementRestart = null
         mutableState.update { it.copy(preparing = false, error = message) }
+    }
+
+    fun preserveVideoDimensionsForEnhancementRestart() {
+        val current = state.value
+        dimensionsForEnhancementRestart = if (current.width > 0 && current.height > 0) {
+            Triple(current.width, current.height, current.rotation)
+        } else null
     }
 
     override fun setUp(url: String?, cache: Boolean, cachePath: File?, title: String?): Boolean {
@@ -160,8 +169,10 @@ object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
         this.url = url
         this.cache = cache
         this.cachePath = cachePath
+        val dimensions = dimensionsForEnhancementRestart.also { dimensionsForEnhancementRestart = null }
         mutableState.value = VideoPlaybackState(title = title.orEmpty(), speed = selectedSpeed,
-            position = seekOnStart, mediaRevision = state.value.mediaRevision + 1)
+            position = seekOnStart, width = dimensions?.first ?: 0, height = dimensions?.second ?: 0,
+            rotation = dimensions?.third ?: 0, mediaRevision = state.value.mediaRevision + 1)
         if (!url.isNullOrBlank()) fetchVideoDimensions(url, mapHeadData.orEmpty(), state.value.mediaRevision)
         return !url.isNullOrBlank()
     }
@@ -423,6 +434,7 @@ object VideoPlaybackBridge : VideoPlaybackTarget, VideoPlaybackListener {
 
     fun releasePlayer() {
         NgVideoPreload.clear()
+        dimensionsForEnhancementRestart = null
         playWhenReady = false
         recovery.reset()
         ticker?.cancel()

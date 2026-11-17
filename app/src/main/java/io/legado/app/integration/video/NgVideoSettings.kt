@@ -30,6 +30,7 @@ internal fun NgVideoFeatureSettings(performanceContent: @Composable ColumnScope.
                     NgVideoBridge.enhancement = enhancement
                     val position = VideoPlaybackBridge.state.value.position
                     VideoPlay.durChapterPos = position.coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
+                    VideoPlaybackBridge.preserveVideoDimensionsForEnhancementRestart()
                     VideoPlay.startPlay(VideoPlaybackBridge)
                 }
             }

@@ -71,8 +71,8 @@ object VideoEnhanceHelper {
             }
 
             EnhanceMode.LANCZOS_3 -> {
-                // Lanczos-3 窗口 Sinc 采样超分重构
-                    effects.add(LanczosResample.scaleToFit(3840, 2160))
+                // Keep portrait sources portrait instead of letterboxing them into a landscape canvas.
+                effects.add(LanczosResample.scaleToFitWithFlexibleOrientation(3840, 2160))
             }
         }
 
