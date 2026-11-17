@@ -126,10 +126,16 @@ fun VideoPlayerScreen(
                             .padding(horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             if (!locked) VideoIcon(R.drawable.ic_arrow_back, "返回", onBack)
-                            if (mode == VideoPresentation.FULLSCREEN && !locked) Text(state.title.ifBlank { title.orEmpty() },
-                                Modifier.weight(1f), color = Color.White, fontSize = 16.sp,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            else Spacer(Modifier.weight(1f))
+                            if (mode == VideoPresentation.FULLSCREEN && !locked) Column(Modifier.weight(1f)) {
+                                Text(title.orEmpty().ifBlank { state.title }, color = Color.White, fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(state.title.ifBlank { "正在播放" }, color = Color.White.copy(alpha = .72f),
+                                    fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            } else Spacer(Modifier.weight(1f))
+                            if (mode == VideoPresentation.FULLSCREEN && !locked) Text(
+                                "${if (state.prepared) "已就绪" else "正在连接"} · ${if (state.speed == 1f) "原速" else "${state.speed}×"}",
+                                color = Color.White.copy(alpha = .72f), fontSize = 11.sp,
+                                modifier = Modifier.padding(end = 8.dp), maxLines = 1)
                             if (mode == VideoPresentation.IMMERSIVE && !locked) VideoIcon(R.drawable.ic_fullscreen, "全屏",
                                 { onMode(VideoPresentation.FULLSCREEN) })
                             if (!locked) Box {
@@ -152,9 +158,9 @@ fun VideoPlayerScreen(
                                 if (state.playing) "暂停" else if (state.ended) "重播" else "播放", { VideoPlaybackBridge.toggle(); interaction++ },
                                 Modifier.align(Alignment.Center).windowInsetsPadding(controlInsets).size(64.dp))
                             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .8f))))
+                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .88f))))
                                 .windowInsetsPadding(edgeControlInsets.only(WindowInsetsSides.Bottom))
-                                .padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                .padding(horizontal = if (landscape) 22.dp else 16.dp, vertical = 10.dp)) {
                                 if (mode == VideoPresentation.IMMERSIVE) {
                                     Text(title.orEmpty(), color = Color.White, fontSize = 16.sp, lineHeight = 22.sp,
                                         fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -181,18 +187,51 @@ fun VideoPlayerScreen(
                                     if (episodes.size > 1) Text("上滑下一集", Modifier.align(Alignment.CenterHorizontally).padding(top = 12.dp),
                                         color = Color.White.copy(alpha = .7f), fontSize = 12.sp)
                                 }
-                                if (mode == VideoPresentation.FULLSCREEN) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween) {
-                                    if (hasCatalog) VideoTextAction("选集") { openEpisodes() }
-                                    if (episodes.size > 1) VideoIcon(R.drawable.ic_skip_next, "下一集", { VideoPlaybackBridge.next(1) })
-                                    VideoTextAction(if (state.speed == 1f) "倍速" else "${state.speed}×", enabled = state.prepared) { panel = "speed" }
-                                    if (VideoPlay.danmakuFile != null || !VideoPlay.danmakuStr.isNullOrBlank()) {
-                                        VideoTextAction(if (danmaku) "关弹幕" else "开弹幕") { danmaku = !danmaku; VideoPlay.danmakuShow = danmaku }
+                                if (mode == VideoPresentation.FULLSCREEN) {
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(title.orEmpty().ifBlank { state.title }, color = Color.White,
+                                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text("${VideoPlay.source?.getTag().orEmpty().ifBlank { "视频源" }} · ${if (state.prepared) "已连接" else "连接中"}",
+                                                color = Color.White.copy(alpha = .62f), fontSize = 11.sp,
+                                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            verticalAlignment = Alignment.CenterVertically) {
+                                            if (hasCatalog) VideoDockAction(R.drawable.ic_chapter_list, "选集") { openEpisodes() }
+                                            VideoDockAction(R.drawable.ic_fast_rewind, "后退 10 秒") {
+                                                VideoPlaybackBridge.seekTo((state.position - 10_000L).coerceAtLeast(0L))
+                                            }
+                                            if (episodes.size > 1) VideoDockAction(R.drawable.ic_skip_previous, "上一集") {
+                                                VideoPlaybackBridge.next(-1)
+                                            }
+                                            VideoDockAction(R.drawable.ic_read_aloud_speed,
+                                                if (state.speed == 1f) "倍速" else "${state.speed}×", selected = state.speed != 1f,
+                                                enabled = state.prepared) { panel = "speed" }
+                                            if (VideoPlay.danmakuFile != null || !VideoPlay.danmakuStr.isNullOrBlank()) {
+                                                VideoDockAction(R.drawable.ic_video_danmaku,
+                                                    if (danmaku) "弹幕开" else "弹幕关", selected = danmaku) {
+                                                    danmaku = !danmaku; VideoPlay.danmakuShow = danmaku
+                                                }
+                                            }
+                                            if (episodes.size > 1) VideoDockAction(R.drawable.ic_skip_next, "下一集") {
+                                                VideoPlaybackBridge.next(1)
+                                            }
+                                            VideoDockAction(R.drawable.ic_fast_forward, "前进 10 秒") {
+                                                val target = state.position + 10_000L
+                                                VideoPlaybackBridge.seekTo(if (state.duration > 0) target.coerceAtMost(state.duration) else target)
+                                            }
+                                            VideoDockAction(R.drawable.ic_float_window, "小窗") {
+                                                onAction(R.id.menu_float_window)
+                                            }
+                                            VideoDockAction(R.drawable.ic_settings, "设置") { panel = "settings" }
+                                            VideoDockAction(R.drawable.ic_fullscreen, "退出全屏") {
+                                                onMode(VideoPresentation.WINDOW)
+                                            }
+                                        }
                                     }
-                                    if (!windowed) VideoIcon(R.drawable.ic_float_window, "小窗", { onAction(R.id.menu_float_window) })
-                                    VideoIcon(R.drawable.ic_fullscreen, if (windowed) "全屏" else "窗口", {
-                                        onMode(if (windowed) VideoPresentation.FULLSCREEN else VideoPresentation.WINDOW)
-                                    })
                                 }
                             }
                         }
@@ -294,6 +333,34 @@ internal fun VideoIcon(icon: Int, label: String, onClick: () -> Unit, modifier: 
 private fun VideoTextAction(text: String, color: Color = Color.White, enabled: Boolean = true, action: () -> Unit) {
     TextButton(onClick = action, enabled = enabled, contentPadding = PaddingValues(horizontal = 6.dp)) {
         Text(text, color = if (enabled) color else color.copy(alpha = .45f), fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+@Composable
+private fun VideoDockAction(
+    icon: Int,
+    label: String,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val tint = when {
+        !enabled -> Color.White.copy(alpha = .38f)
+        selected -> videoContentColors().accent
+        else -> Color.White
+    }
+    Column(
+        Modifier.widthIn(min = 46.dp).heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) Color.White.copy(alpha = .10f) else Color.Transparent)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 5.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(painterResource(icon), label, Modifier.size(18.dp), tint = tint)
+        Text(label, color = tint, fontSize = 10.sp, lineHeight = 12.sp,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
