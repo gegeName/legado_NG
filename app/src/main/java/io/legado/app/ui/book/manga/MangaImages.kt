@@ -13,14 +13,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -77,6 +75,10 @@ import io.legado.app.ui.book.manga.entities.EpaperTransformation
 import io.legado.app.ui.book.manga.entities.GrayscaleTransformation
 import io.legado.app.ui.book.manga.entities.MangaPage
 import io.legado.app.ui.book.manga.entities.ReaderLoading
+import io.legado.app.ui.design.components.compose.NgLoadingContent
+import io.legado.app.ui.design.components.compose.NgLoadingLayout
+import io.legado.app.ui.design.components.compose.NgLoadingStatus
+import io.legado.app.ui.design.components.compose.NgLoadingSurface
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -448,11 +450,9 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
             // Rebase a visible tail onto newly appended chapter content instead of anchoring past it.
             item(key = mangaTailKey(displayPages), contentType = "tail") {
                 Box(if (ui.horizontal) Modifier.width(viewportWidth).height(viewportHeight)
-                    else Modifier.fillMaxWidth().height(48.dp), Alignment.Center) {
-                    Row(Modifier.clickable(enabled = ui.tailRetry, onClick = onRetryTail), verticalAlignment = Alignment.CenterVertically) {
-                        if (ui.tailLoading) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                        Text(ui.tailMessage, Modifier.padding(8.dp), color = Color.White, fontSize = 14.sp)
-                    }
+                    else Modifier.fillMaxWidth().heightIn(min = 72.dp), Alignment.Center) {
+                    MangaChapterLoading(ui, onRetryTail,
+                        if (ui.horizontal) NgLoadingLayout.CENTERED else NgLoadingLayout.INLINE)
                 }
             }
         }
@@ -577,6 +577,8 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
         val imageHeight = if (ratio > 0) maxWidth / ratio else viewportHeight
         val verticalHeight = imageHeight
         val fit = paged || ui.horizontal
+        val loadingLayout = if ((if (fit) maxHeight else verticalHeight) < 200.dp) NgLoadingLayout.INLINE
+            else NgLoadingLayout.CENTERED
         val imageModifier = if (fit) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(imageHeight)
         Box(if (fit) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(verticalHeight), Alignment.TopCenter) {
             pdfPreview?.takeIf { loading && !failed }?.let { preview ->
@@ -627,13 +629,19 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                 }
             }
             if (showMangaOriginalPlaceholder(loading, failed, hasDisplayedImage || (ui.translationEnabled && translation.file != null && !translatedImageLoading), loadingIndicatorVisible, pdfPreview != null)) Box(Modifier.fillMaxSize().background(background), Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (failed) Text("重新加载", Modifier.clickable { retry++ }.padding(16.dp), color = Color.White, fontSize = 18.sp)
-                    else {
-                        CircularProgressIndicator(Modifier.size(36.dp), color = Color.White, strokeWidth = 3.dp)
-                        Text(if (progress < 0) "加载中" else "$progress%", Modifier.padding(top = 8.dp), color = Color.White)
-                    }
-                }
+                NgLoadingContent(
+                    title = when {
+                        failed -> "这一页暂时没能加载"
+                        progress >= 100 -> "正在准备画面"
+                        else -> "正在加载画面"
+                    },
+                    progress = progress.takeIf { it in 0..99 }?.div(100f),
+                    layout = loadingLayout,
+                    status = if (failed) NgLoadingStatus.ERROR else NgLoadingStatus.LOADING,
+                    surface = NgLoadingSurface.MANGA,
+                    active = ui.active,
+                    onRetry = if (failed) ({ retry++ }) else null,
+                )
             }
             val translationStatus = if (!ui.translationEnabled) null else when {
                 translation.busy || translatedImageLoading -> if (!loadingIndicatorVisible) null

@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -100,16 +99,13 @@ internal fun MangaReaderScreen(
         }
         if (state.loading) {
             Box(Modifier.fillMaxSize().background(Color(NgTheme.colors.background)), Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (state.error == null) {
-                        if (!AppConfig.isEInkMode) CircularProgressIndicator(Modifier.size(36.dp), strokeWidth = 3.dp)
-                        Text("加载中", Modifier.padding(top = 10.dp), color = Color(NgTheme.colors.onSurface))
-                    } else {
-                        Text(state.error.orEmpty(), color = Color(NgTheme.colors.onSurface), textAlign = TextAlign.Center)
-                        if (state.retryAllowed) Text("重新加载", Modifier.padding(16.dp)
-                            .clickable { onAction(MangaAction.RETRY) }, color = Color(NgTheme.colors.primary), fontSize = 18.sp)
-                    }
-                }
+                NgLoadingContent(
+                    title = if (state.error == null) "正在展开故事" else "章节暂时没能加载",
+                    subtitle = state.error ?: "正在获取章节内容",
+                    status = if (state.error == null) NgLoadingStatus.LOADING else NgLoadingStatus.ERROR,
+                    active = state.active,
+                    onRetry = if (state.error != null && state.retryAllowed) ({ onAction(MangaAction.RETRY) }) else null,
+                )
             }
         }
         NgMangaPanelTheme {

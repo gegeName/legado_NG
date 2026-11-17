@@ -9,13 +9,11 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,6 +49,7 @@ import io.legado.app.ui.book.manga.entities.EpaperTransformation
 import io.legado.app.ui.book.manga.entities.GrayscaleTransformation
 import io.legado.app.ui.book.manga.entities.MangaPage
 import io.legado.app.ui.book.manga.entities.ReaderLoading
+import io.legado.app.ui.design.components.compose.NgLoadingLayout
 import io.legado.app.ui.book.read.page.PageCoverRenderer
 import io.legado.app.ui.book.read.page.PageCurlRenderer
 import io.legado.app.ui.book.read.page.entities.PageDirection
@@ -372,10 +371,7 @@ private fun MangaPagedSurface(ui: MangaReaderState, pages: List<BaseMangaPage>, 
     else if (page is NgMangaSpread) NgMangaSpreadImage(page, ui, height, modifier)
     else Box(modifier.background(colorResource(R.color.book_ant_10)), Alignment.Center) {
         if (page is ReaderLoading) Text(page.mMessage.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        else Row(Modifier.clickable(enabled = ui.tailRetry, onClick = onRetryTail), verticalAlignment = Alignment.CenterVertically) {
-            if (ui.tailLoading) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-            Text(ui.tailMessage, Modifier.padding(8.dp), color = Color.White, fontSize = 14.sp)
-        }
+        else MangaChapterLoading(ui, onRetryTail, NgLoadingLayout.CENTERED)
     }
 }
 
