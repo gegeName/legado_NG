@@ -1,10 +1,7 @@
 package io.legado.app.ui.video
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -17,8 +14,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import kotlin.math.roundToInt
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -28,12 +23,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import io.legado.app.R
 import io.legado.app.model.VideoPlay
 import io.legado.app.integration.video.NgVideoFeatureSettings
@@ -52,34 +47,41 @@ internal fun VideoSettings(onDismiss: () -> Unit) {
     var picker by rememberSaveable { mutableStateOf(false) }
     var decoderFallback by remember { mutableStateOf(VideoPlay.decoderFallback) }
     var preopen by remember { mutableStateOf(NgVideoPreload.enabled) }
-    Dialog({ if (picker) picker = false else onDismiss() }) {
-        if (picker) VideoHoldSpeedPicker(speed, { picker = false }) {
-            speed = it; VideoPlay.longPressSpeed = it; picker = false
-        } else {
-            NgDialog(stringResource(R.string.config_settings), variant = NgDialogVariant.CLASSIC_CONFIRMATION,
-                titleFontSize = 18.sp, titleFontWeight = FontWeight.Medium, actions = {}) {
-                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                    NgVideoFeatureSettings()
-                    VideoSettingCheck("提前解析并预开下一集", preopen) {
+    val scrollState = rememberScrollState()
+    if (picker) {
+        Dialog(onDismissRequest = { picker = false }) {
+            VideoHoldSpeedPicker(speed, { picker = false }) {
+                speed = it; VideoPlay.longPressSpeed = it; picker = false
+            }
+        }
+    } else {
+        Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            VideoSettingsPanel(onDismiss, scrollState) {
+                NgVideoFeatureSettings {
+                    VideoSettingsDivider()
+                    VideoSettingsSwitchRow("预加载下一集", "提前解析并预开，减少切集等待", preopen) {
                         preopen = it; NgVideoPreload.enabled = it
                     }
-                    VideoSettingCheck("解码失败时尝试其他解码器（下次加载生效）", decoderFallback) {
+                    VideoSettingsDivider()
+                    VideoSettingsSwitchRow("解码器回退", "解码失败时尝试其他解码器，下次加载生效", decoderFallback) {
                         decoderFallback = it; VideoPlay.decoderFallback = it
                     }
-                    VideoSettingCheck(stringResource(R.string.auto_play), auto) { auto = it; VideoPlay.autoPlay = it }
-                    if (auto) VideoSettingCheck(stringResource(R.string.start_full), full) { full = it; VideoPlay.startFull = it }
-                    VideoSettingCheck(stringResource(R.string.full_bottom_progress), progress) { progress = it; VideoPlay.fullBottomProgressBar = it }
-                    Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button) { picker = true },
-                        contentAlignment = Alignment.CenterStart) {
-                        Text(stringResource(R.string.press_speed_summary, speed / 10f),
-                            color = Color(NgTheme.colors.onSurface), fontSize = 16.sp)
+                }
+                VideoSettingsSection("播放与手势") {
+                    VideoSettingsSwitchRow(stringResource(R.string.auto_play), checked = auto) { auto = it; VideoPlay.autoPlay = it }
+                    VideoSettingsDivider()
+                    VideoSettingsSwitchRow(stringResource(R.string.start_full), "开启自动播放后生效", full, enabled = auto) {
+                        full = it; VideoPlay.startFull = it
                     }
+                    VideoSettingsDivider()
+                    VideoSettingsSwitchRow("底部进度条", "全屏时显示播放进度", progress) { progress = it; VideoPlay.fullBottomProgressBar = it }
+                    VideoSettingsDivider()
+                    VideoSettingsValueRow(stringResource(R.string.press_speed), "${speed / 10f}×") { picker = true }
                 }
             }
         }
     }
 }
-
 @Composable
 private fun VideoHoldSpeedPicker(speed: Int, onCancel: () -> Unit, onConfirm: (Int) -> Unit) {
     val list = rememberLazyListState((speed - 5).coerceIn(0, 55))
@@ -123,18 +125,5 @@ private fun VideoHoldSpeedPicker(speed: Int, onCancel: () -> Unit, onConfirm: (I
                 decorationBox = { field -> Box(contentAlignment = Alignment.Center) { field() } },
                 textStyle = TextStyle(color = Color(NgTheme.colors.primary), fontSize = 20.sp, textAlign = TextAlign.Center))
         }
-    }
-}
-
-@Composable
-private fun VideoSettingCheck(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
-    val colors = videoContentColors()
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-        .toggleable(value = checked, role = Role.Checkbox, onValueChange = onChecked).padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Text(title, Modifier.weight(1f), color = Color(NgTheme.colors.onSurface), fontSize = 16.sp)
-        Checkbox(checked, onCheckedChange = null, modifier = Modifier.size(48.dp),
-            colors = CheckboxDefaults.colors(checkedColor = colors.selectedContainer, uncheckedColor = colors.muted,
-                checkmarkColor = colors.onAccent))
     }
 }
