@@ -30,17 +30,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -102,6 +97,7 @@ fun NgLoadingContent(
         NgBookLoadingIndicator(
             modifier = Modifier.size(if (inline) 28.dp else 80.dp),
             accent = accent,
+            background = background,
             progress = fraction,
             status = status,
             animate = animate,
@@ -157,75 +153,30 @@ fun NgLoadingContent(
 private fun NgBookLoadingIndicator(
     modifier: Modifier,
     accent: Color,
+    background: Color,
     progress: Float?,
     status: NgLoadingStatus,
     animate: Boolean,
 ) {
     val phase = if (animate && status == NgLoadingStatus.LOADING) {
         rememberInfiniteTransition(label = "book_loading").animateFloat(0f, 360f,
-            infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "book_loading_rotation")
+            infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Restart), label = "book_loading_rotation")
     } else null
     val displayedProgress = animateFloatAsState(progress ?: 0f,
         animationSpec = tween(if (animate) 180 else 0), label = "book_loading_progress")
-    val sweep = remember(accent) {
-        Brush.sweepGradient(0f to accent.copy(alpha = .05f), .75f to accent, 1f to accent)
-    }
-    val progressSweep = remember(accent) {
-        // A visible filled arc with a seamless moving highlight, including at full progress.
-        Brush.sweepGradient(0f to accent.copy(alpha = .6f), .65f to accent.copy(alpha = .6f),
-            .85f to accent, 1f to accent.copy(alpha = .6f))
-    }
-    val book = remember {
-        Path().apply {
-            moveTo(-23f, -16f)
-            cubicTo(-12f, -20f, -6f, -15f, 0f, -11f)
-            cubicTo(6f, -15f, 12f, -20f, 23f, -16f)
-            lineTo(23f, 16f)
-            cubicTo(13f, 12f, 6f, 15f, 0f, 20f)
-            cubicTo(-6f, 15f, -13f, 12f, -23f, 16f)
-            close()
-            moveTo(0f, -11f); lineTo(0f, 19f)
-            moveTo(-16f, -6f); lineTo(-7f, -3f)
-            moveTo(7f, -3f); lineTo(16f, -6f)
-        }
-    }
+    val painter = remember(accent, background) { NgBookLoadingPainter(accent.toArgb(), background.toArgb()) }
     Box(modifier.then(if (status == NgLoadingStatus.LOADING) Modifier.semantics {
         progressBarRangeInfo = progress?.let { ProgressBarRangeInfo(it, 0f..1f) }
             ?: ProgressBarRangeInfo.Indeterminate
     } else Modifier), contentAlignment = Alignment.Center) {
         Canvas(Modifier.matchParentSize()) {
             val stroke = (size.minDimension * .032f).coerceAtLeast(1.8.dp.toPx())
-            val diameter = size.minDimension - stroke * 2
-            val topLeft = center - Offset(diameter / 2, diameter / 2)
-            val ringSize = Size(diameter, diameter)
-            val style = Stroke(stroke, cap = StrokeCap.Round)
-            drawCircle(accent.copy(alpha = .15f), diameter / 2, style = style)
-            if (status == NgLoadingStatus.ERROR) {
-                val u = size.minDimension / 80
-                drawLine(accent, center + Offset(0f, -12 * u), center + Offset(0f, 6 * u), stroke, StrokeCap.Round)
-                drawCircle(accent, stroke / 2, center + Offset(0f, 14 * u))
-            } else {
-                if (progress != null) {
-                    val rotation = phase?.value ?: 0f
-                    val sweepAngle = displayedProgress.value * 360f
-                    if (sweepAngle > 0f) rotate(rotation) {
-                        // Counter-rotate geometry: only the gradient moves; the actual progress stays anchored at twelve.
-                        if (sweepAngle >= 360f) {
-                            drawCircle(progressSweep, diameter / 2, style = style)
-                        } else {
-                            drawArc(progressSweep, -90f - rotation, sweepAngle, false, topLeft, ringSize, style = style)
-                        }
-                    }
-                } else {
-                    // Read animation only during drawing, avoiding per-frame layout/recomposition.
-                    rotate(phase?.value ?: -45f) {
-                        drawArc(sweep, 0f, 270f, false, topLeft, ringSize, style = style)
-                    }
-                }
-                val scale = size.minDimension / 80 * .7f
-                withTransform({ translate(center.x, center.y); scale(scale, scale, Offset.Zero) }) {
-                    drawPath(book, accent, style = Stroke(2.4f, cap = StrokeCap.Round))
-                }
+            // Native Canvas stays inside Compose's draw pass, including captured manga pages.
+            // Animation values are read here so a frame never triggers layout/recomposition.
+            drawIntoCanvas {
+                painter.draw(it.nativeCanvas, size.width, size.height, stroke,
+                    if (progress == null) null else displayedProgress.value,
+                    phase?.value ?: 0f, status == NgLoadingStatus.ERROR)
             }
         }
     }
