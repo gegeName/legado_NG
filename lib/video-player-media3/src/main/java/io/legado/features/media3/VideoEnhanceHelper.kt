@@ -23,7 +23,8 @@ object VideoEnhanceHelper {
         ANIME_4K(2, "Anime4K 线条重构 (动漫专刷)"),
         SHADOW_BOOST(3, "暗光提亮 (夜景细节修复)"),
         SMART_COMBO(4, "全能极清 (CAS 锐化 + 暗部提亮)"),
-        LANCZOS_3(5, "Lanczos-3 平滑超分 (抗锯齿)");
+        LANCZOS_3(5, "Lanczos-3 平滑超分 (抗锯齿)"),
+        AMD_RCAS(6, "AMD RCAS 锐化（抑制噪点放大）");
 
         companion object {
             fun fromId(id: Int): EnhanceMode {
@@ -45,8 +46,8 @@ object VideoEnhanceHelper {
             }
 
             EnhanceMode.AMD_CAS -> {
-                // CAS 风格自适应锐化；视觉和性能需设备验证
-                effects.add(CasGlEffect(sharpness = 0.9f))
+                // AMD upstream CAS sharpen-only port; see THIRD_PARTY_NOTICES.md.
+                effects.add(CasGlEffect(sharpness = 0.65f))
             }
 
             EnhanceMode.ANIME_4K -> {
@@ -60,8 +61,13 @@ object VideoEnhanceHelper {
             }
 
             EnhanceMode.SMART_COMBO -> {
-                // 全能单 Pass 组合 Shader：CAS 锐化 + 自适应暗部提亮
-                effects.add(SmartComboGlEffect(sharpness = 0.8f, gamma = 1.38f))
+                // Reuse the upstream CAS port before the existing shadow-lift pass.
+                effects.add(CasGlEffect(sharpness = 0.5f))
+                effects.add(ShadowLiftGlEffect(gamma = 1.38f))
+            }
+
+            EnhanceMode.AMD_RCAS -> {
+                effects.add(FidelityFxSharpenEffect(FidelityFxSharpenEffect.Algorithm.RCAS, 0.65f))
             }
 
             EnhanceMode.LANCZOS_3 -> {
@@ -74,93 +80,17 @@ object VideoEnhanceHelper {
     }
 
     // =========================================================================
-    // 1. 优化版 AMD CAS (Contrast Adaptive Sharpening) GLSL 实现
+    // 1. AMD FidelityFX CAS 官方公式的 GLES 移植
     // =========================================================================
     class CasGlEffect(private val sharpness: Float = 0.65f) : GlEffect {
         override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
-            return CasShaderProgram(useHdr, sharpness)
-        }
-    }
-
-    private class CasShaderProgram(
-        useHdr: Boolean,
-        private val sharpness: Float
-    ) : BaseGlShaderProgram(useHdr, 1) {
-
-        private var glProgram: GlProgram? = null
-
-        override fun configure(inputWidth: Int, inputHeight: Int): Size {
-            if (glProgram == null) {
-                glProgram = GlProgram(VERTEX_SHADER, CAS_FRAGMENT_SHADER)
-            }
-            glProgram?.use()
-            glProgram?.setFloatsUniform("uTexSize", floatArrayOf(inputWidth.toFloat(), inputHeight.toFloat()))
-            glProgram?.setFloatUniform("uSharpness", sharpness)
-            return Size(inputWidth, inputHeight)
-        }
-
-        override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
-            val program = glProgram ?: return
-            program.use()
-            program.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
-            program.setBufferAttribute(
-                "aFramePosition",
-                GlUtil.getNormalizedCoordinateBounds(),
-                GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE
-            )
-            program.bindAttributesAndUniforms()
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        }
-
-        override fun release() {
-            super.release()
-            try {
-                glProgram?.delete()
-            } catch (_: Exception) {
-            }
-        }
-
-        companion object {
-            private const val CAS_FRAGMENT_SHADER = """
-                precision highp float;
-                uniform sampler2D uTexSampler;
-                uniform vec2 uTexSize;
-                uniform float uSharpness;
-                varying vec2 vTexCoords;
-
-                void main() {
-                    vec2 size = uTexSize;
-                    if (size.x <= 0.0 || size.y <= 0.0) {
-                        size = vec2(1920.0, 1080.0);
-                    }
-                    vec2 dx = vec2(1.0 / size.x, 0.0);
-                    vec2 dy = vec2(0.0, 1.0 / size.y);
-
-                    vec3 a = texture2D(uTexSampler, vTexCoords - dy).rgb;
-                    vec3 b = texture2D(uTexSampler, vTexCoords - dx).rgb;
-                    vec3 c = texture2D(uTexSampler, vTexCoords).rgb;
-                    vec3 d = texture2D(uTexSampler, vTexCoords + dx).rgb;
-                    vec3 e = texture2D(uTexSampler, vTexCoords + dy).rgb;
-
-                    vec3 minColor = min(c, min(min(a, b), min(d, e)));
-                    vec3 maxColor = max(c, max(max(a, b), max(d, e)));
-
-                    // 计算对比度自适应权重
-                    vec3 amp = clamp(sqrt(min(minColor, vec3(1.0) - maxColor) / (maxColor + 0.0001)), 0.0, 1.0);
-                    float peak = -0.18 - uSharpness * 0.22;
-                    vec3 w = amp * peak;
-
-                    vec3 sharpColor = (a * w + b * w + c + d * w + e * w) / (vec3(1.0) + 4.0 * w);
-                    // 严格约束在局部最小最大色彩范围内，彻底防止溢出和边缘白边
-                    vec3 result = mix(c, clamp(sharpColor, minColor, maxColor), 0.86);
-                    gl_FragColor = vec4(clamp(result, 0.0, 1.0), 1.0);
-                }
-            """
+            return FidelityFxSharpenEffect(FidelityFxSharpenEffect.Algorithm.CAS, sharpness)
+                .toGlShaderProgram(context, useHdr)
         }
     }
 
     // =========================================================================
-    // 2. 优化版 Anime4K 开源线条重构 GLSL 实现
+    // 2. 既有轻量动漫线条增强（并非上游 Anime4K CNN）
     // =========================================================================
     class Anime4kGlEffect(private val strength: Float = 1.25f) : GlEffect {
         override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
@@ -322,103 +252,6 @@ object VideoEnhanceHelper {
                     rgb = clamp(rgb * scale, 0.0, 1.0);
 
                     gl_FragColor = vec4(rgb, color.a);
-                }
-            """
-        }
-    }
-
-    // =========================================================================
-    // 4. 单 Pass 组合 Shader：AMD CAS 锐化 + 自适应暗部提亮
-    // =========================================================================
-    class SmartComboGlEffect(
-        private val sharpness: Float = 0.55f,
-        private val gamma: Float = 1.28f
-    ) : GlEffect {
-        override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
-            return SmartComboShaderProgram(useHdr, sharpness, gamma)
-        }
-    }
-
-    private class SmartComboShaderProgram(
-        useHdr: Boolean,
-        private val sharpness: Float,
-        private val gamma: Float
-    ) : BaseGlShaderProgram(useHdr, 1) {
-
-        private var glProgram: GlProgram? = null
-
-        override fun configure(inputWidth: Int, inputHeight: Int): Size {
-            if (glProgram == null) {
-                glProgram = GlProgram(VERTEX_SHADER, SMART_COMBO_FRAGMENT_SHADER)
-            }
-            glProgram?.use()
-            glProgram?.setFloatsUniform("uTexSize", floatArrayOf(inputWidth.toFloat(), inputHeight.toFloat()))
-            glProgram?.setFloatUniform("uSharpness", sharpness)
-            glProgram?.setFloatUniform("uGamma", gamma)
-            return Size(inputWidth, inputHeight)
-        }
-
-        override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
-            val program = glProgram ?: return
-            program.use()
-            program.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
-            program.setBufferAttribute(
-                "aFramePosition",
-                GlUtil.getNormalizedCoordinateBounds(),
-                GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE
-            )
-            program.bindAttributesAndUniforms()
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        }
-
-        override fun release() {
-            super.release()
-            try {
-                glProgram?.delete()
-            } catch (_: Exception) {
-            }
-        }
-
-        companion object {
-            private const val SMART_COMBO_FRAGMENT_SHADER = """
-                precision highp float;
-                uniform sampler2D uTexSampler;
-                uniform vec2 uTexSize;
-                uniform float uSharpness;
-                uniform float uGamma;
-                varying vec2 vTexCoords;
-
-                void main() {
-                    vec2 size = uTexSize;
-                    if (size.x <= 0.0 || size.y <= 0.0) {
-                        size = vec2(1920.0, 1080.0);
-                    }
-                    vec2 dx = vec2(1.0 / size.x, 0.0);
-                    vec2 dy = vec2(0.0, 1.0 / size.y);
-
-                    vec3 a = texture2D(uTexSampler, vTexCoords - dy).rgb;
-                    vec3 b = texture2D(uTexSampler, vTexCoords - dx).rgb;
-                    vec3 c = texture2D(uTexSampler, vTexCoords).rgb;
-                    vec3 d = texture2D(uTexSampler, vTexCoords + dx).rgb;
-                    vec3 e = texture2D(uTexSampler, vTexCoords + dy).rgb;
-
-                    vec3 minColor = min(c, min(min(a, b), min(d, e)));
-                    vec3 maxColor = max(c, max(max(a, b), max(d, e)));
-
-                    // 1. AMD CAS 自适应锐化
-                    vec3 amp = clamp(sqrt(min(minColor, vec3(1.0) - maxColor) / (maxColor + 0.0001)), 0.0, 1.0);
-                    float peak = -0.18 - uSharpness * 0.2;
-                    vec3 w = amp * peak;
-                    vec3 sharpColor = clamp((a * w + b * w + c + d * w + e * w) / (vec3(1.0) + 4.0 * w), minColor, maxColor);
-
-                    // 2. 自适应暗部 Gamma 提亮
-                    float luma = dot(sharpColor, vec3(0.2126, 0.7152, 0.0722));
-                    float shadowMask = 1.0 - smoothstep(0.08, 0.64, luma);
-                    float liftedLuma = pow(max(luma, 0.001), 1.0 / uGamma);
-                    float scale = mix(1.0, liftedLuma / max(luma, 0.001), shadowMask);
-                    sharpColor = clamp(sharpColor * scale, 0.0, 1.0);
-
-                    gl_FragColor = vec4(sharpColor, 1.0);
                 }
             """
         }
