@@ -16,6 +16,7 @@ internal class MangaFlipController(
     private val moveChapter: (Int) -> Boolean,
     private val updatePage: (MangaPage) -> Unit,
     private val preloadNextChapter: () -> Unit,
+    private val onViewportPage: (MangaPage) -> Unit = {},
 ) {
     private enum class State { IDLE, WAITING_CONTENT }
 
@@ -35,6 +36,7 @@ internal class MangaFlipController(
         if (page == null) return
         val realPage = NgMangaLayout.progress(page, currentPage())
         if (realPage !is MangaPage && (realPage !is ReaderLoading || !realPage.isVolume)) return
+        if (realPage is MangaPage) onViewportPage(realPage)
         // Content arrival alone cannot unlock an edge drag: the source chapter
         // can still occupy the viewport while the target is appended below it.
         if (realPage is MangaPage && realPage.chapterIndex == renderedChapter()) {

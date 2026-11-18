@@ -156,7 +156,11 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
             },
             updatePage = { latestPage(it) },
             preloadNextChapter = ReadManga::preloadNextChapter,
+            onViewportPage = { ui.footerViewportPage = it },
         )
+    }
+    DisposableEffect(ui, ui.bookUrl, ui.sourceOrigin) {
+        onDispose { ui.footerViewportPage = null }
     }
     val latestMenu by rememberUpdatedState(onMenu)
     var pan by remember { mutableStateOf(Offset.Zero) }

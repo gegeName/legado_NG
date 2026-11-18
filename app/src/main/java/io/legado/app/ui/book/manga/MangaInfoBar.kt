@@ -106,7 +106,7 @@ internal fun MangaInfoBar(
     modifier: Modifier = Modifier,
     status: MangaFooterStatus = rememberMangaFooterStatus(),
 ) {
-    MangaFooterBar(ui.footer, ui.currentPage, ui.bookName, status.time, status.battery, modifier)
+    MangaFooterBar(ui.footer, ui.footerPage, ui.bookName, status.time, status.battery, modifier)
 }
 
 /** 空槽不占宽；两端保留圆角安全距离，非空中间项保持屏幕几何中心。 */

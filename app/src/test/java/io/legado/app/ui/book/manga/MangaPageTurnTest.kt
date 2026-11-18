@@ -87,4 +87,27 @@ class MangaPageTurnTest {
         assertEquals(-1, mangaTurnSign(false, true, 1))
         assertEquals(1, mangaTurnSign(false, true, -1))
     }
+
+    @Test fun continuousViewportReportsBothAdjacentChaptersBeforeCommitting() {
+        val visible = mutableListOf<MangaPage>()
+        val moves = mutableListOf<Int>()
+        val saved = mutableListOf<MangaPage>()
+        val controller = MangaFlipController(
+            isLoading = { false }, currentChapter = { first.chapterIndex },
+            renderedChapter = { first.chapterIndex }, currentPage = { first },
+            moveChapter = { moves += it; true }, updatePage = { saved += it },
+            preloadNextChapter = {}, onViewportPage = { visible += it },
+        )
+        val next = first.copy(chapterIndex = first.chapterIndex + 1)
+        val previous = second.copy(chapterIndex = first.chapterIndex - 1)
+        controller.onVisiblePage(next, currentChapterVisible = false, scrolling = true)
+        controller.onVisiblePage(previous, currentChapterVisible = false, scrolling = true)
+
+        assertEquals(listOf(next, previous), visible)
+        assertTrue(saved.isEmpty())
+        assertTrue(moves.isEmpty())
+
+        controller.onVisiblePage(previous, currentChapterVisible = false, scrolling = false)
+        assertEquals(listOf(-1), moves)
+    }
 }

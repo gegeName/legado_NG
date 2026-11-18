@@ -51,6 +51,9 @@ internal class MangaReaderState {
     var chapterUrl by mutableStateOf("")
     var chapterName by mutableStateOf("")
     var currentPage by mutableStateOf<MangaPage?>(null)
+    // Continuous scrolling can show a new chapter before its navigation commits.
+    var footerViewportPage by mutableStateOf<MangaPage?>(null)
+    val footerPage: MangaPage? get() = if (paged) currentPage else footerViewportPage ?: currentPage
     var chapterIndex by mutableIntStateOf(0)
     var chapterCount by mutableIntStateOf(0)
     var imageIndex by mutableIntStateOf(0)
@@ -112,6 +115,7 @@ internal class MangaReaderState {
             !touching && scale == 1f
 
     fun jumpTo(index: Int) {
+        footerViewportPage = null
         jumpPage = pages.getOrNull(index)
         jumpIndex = index; jumpRevision++
         (pages.getOrNull(index) as? MangaPage)?.let {
