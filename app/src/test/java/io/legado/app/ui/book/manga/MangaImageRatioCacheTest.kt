@@ -11,6 +11,19 @@ class MangaImageRatioCacheTest {
         repeat(4) { assertEquals(1727f, 1116 / cache.get("page"), 0.001f) }
     }
 
+    @Test fun mountedPageReceivesLatePrefetchBoundsAndKeepsDecodedGeometry() {
+        val cache = MangaImageRatioCache()
+        val ratio = cache.observe("page")
+        assertEquals(0f, ratio.value)
+
+        cache.put("page", 1080, 1596, onlyIfUnknown = true)
+        assertEquals(1080f / 1596, ratio.value)
+
+        cache.put("page", 1080, 1594)
+        cache.put("page", 1080, 1596, onlyIfUnknown = true)
+        assertEquals(1080f / 1594, ratio.value)
+    }
+
     @Test fun invalidBoundsDoNotEraseKnownGeometry() {
         val cache = MangaImageRatioCache()
         cache.put("page", 1116, 1727)

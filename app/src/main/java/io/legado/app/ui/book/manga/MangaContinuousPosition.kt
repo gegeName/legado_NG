@@ -9,6 +9,26 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 
+/** Keep existing indices during a drag/fling when a late previous chapter arrives. */
+@Composable
+internal fun MangaDeferPrepend(
+    list: LazyListState,
+    pages: List<BaseMangaPage>,
+    touching: Boolean,
+): List<BaseMangaPage> {
+    val content = remember(list) { MangaMeasuredContent(pages) }
+    val previous = content.pages
+    val display = if (previous !== pages && (touching || list.isScrollInProgress)) {
+        val firstKey = previous.firstOrNull()?.let(::mangaPageKey)
+        remember(pages, firstKey) {
+            val start = if (firstKey == null) -1 else pages.indexOfFirst { mangaPageKey(it) == firstKey }
+            if (start > 0) pages.subList(start, pages.size) else pages
+        }
+    } else pages
+    SideEffect { content.pages = display }
+    return display
+}
+
 /** Rebase before measurement: LazyList's nearby key map cannot cover whole chapter replacements. */
 @Composable
 internal fun MangaMaintainScrollPosition(

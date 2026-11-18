@@ -24,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -130,12 +131,16 @@ internal fun MangaImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> Unit,
 @Composable
 private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> Unit,
     onMenu: () -> Unit, onRetryTail: () -> Unit) {
-    val displayPages by rememberUpdatedState(remember(ui.pages, ui.horizontal, ui.doublePage, ui.rtl) {
+    val chapterPages = remember(ui.pages, ui.horizontal, ui.doublePage, ui.rtl) {
         NgMangaLayout.display(ui.pages, ui.horizontal && ui.doublePage, ui.rtl)
-    })
-    val prefetchItems = remember(displayPages) { NgMangaLayout.prefetchItems(displayPages) }
+    }
     val itemPrefetch = remember(ui.bookUrl, ui.sourceOrigin) { MangaListPrefetchStrategy() }
     val list = rememberLazyListState(prefetchStrategy = itemPrefetch)
+    val pages = key(ui.bookUrl, ui.sourceOrigin, ui.jumpRevision, ui.loading) {
+        MangaDeferPrepend(list, chapterPages, ui.touching)
+    }
+    val displayPages by rememberUpdatedState(pages)
+    val prefetchItems = remember(pages) { NgMangaLayout.prefetchItems(pages) }
     DisposableEffect(itemPrefetch) { onDispose { itemPrefetch.clear() } }
     val scope = rememberCoroutineScope()
     val latestPage by rememberUpdatedState(onPage)
@@ -252,11 +257,15 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                     }
                     val currentVisible = measured.any { it.chapter == ui.chapterIndex &&
                         it.offset < info.viewportEndOffset && it.offset.toLong() + it.size > info.viewportStartOffset }
-                    selected to currentVisible
+                    // Revisit the same candidate after scrolling stops, even if no page changed.
+                    val scrolling = selected != null && selected.chapterIndex != ui.chapterIndex &&
+                        (ui.touching || list.isScrollInProgress)
+                    Triple(selected, currentVisible, scrolling)
                 }
             }.distinctUntilChanged().collect { item ->
-                item?.let { (centered, currentVisible) ->
-                    flipController.onVisiblePage(centered, currentChapterVisible = currentVisible)
+                item?.let { (centered, currentVisible, scrolling) ->
+                    flipController.onVisiblePage(centered, currentVisible,
+                        scrolling || ui.touching || list.isScrollInProgress)
                 }
             }
         }
@@ -343,7 +352,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                     }
                 } else null)
             }
-            .pointerInput(ui.horizontal, ui.rtl, ui.loading, ui.scale, displayPages, ui.chapterIndex, flipController) {
+            .pointerInput(ui.horizontal, ui.rtl, ui.loading, ui.scale, flipController) {
                 if (ui.loading) return@pointerInput
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -353,6 +362,8 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                         do {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             total += event.calculatePan()
+                            val firstChapter = displayPages.firstOrNull()?.chapterIndex
+                            val availableFirstChapter = ui.pages.firstOrNull()?.chapterIndex
                             triggered = (!relocating && flipController.onTouchDrag(
                                 total = total,
                                 touchSlop = viewConfiguration.touchSlop,
@@ -363,6 +374,8 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                                 pages = displayPages,
                                 chapterIndex = ui.chapterIndex,
                                 pointerCount = event.changes.count { it.pressed },
+                                pendingPrepend = firstChapter != null && availableFirstChapter != null &&
+                                    availableFirstChapter < firstChapter,
                             )) || triggered
                             if (triggered) event.changes.forEach { it.consume() }
                         } while (event.changes.any { it.pressed })
@@ -435,10 +448,13 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
             }
             // Rebase a visible tail onto newly appended chapter content instead of anchoring past it.
             item(key = mangaTailKey(displayPages), contentType = "tail") {
-                Box(if (ui.horizontal) Modifier.width(viewportWidth).height(viewportHeight)
-                    else Modifier.fillMaxWidth().heightIn(min = 72.dp), Alignment.Center) {
-                    MangaChapterLoading(ui, onRetryTail,
-                        if (ui.horizontal) NgLoadingLayout.CENTERED else NgLoadingLayout.INLINE)
+                // An empty footer must not be a scroll destination after a prefetched chapter.
+                if (ui.tailLoading || ui.tailRetry || ui.tailMessage.isNotEmpty()) {
+                    Box(if (ui.horizontal) Modifier.width(viewportWidth).height(viewportHeight)
+                        else Modifier.fillMaxWidth().heightIn(min = 72.dp), Alignment.Center) {
+                        MangaChapterLoading(ui, onRetryTail,
+                            if (ui.horizontal) NgLoadingLayout.CENTERED else NgLoadingLayout.INLINE)
+                    }
                 }
             }
         }
@@ -479,7 +495,11 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
     }
     val pdfPreview = rememberNgPdfPreview(book, page.mImageUrl, ui.active)
     val background = colorResource(R.color.book_ant_10)
-    var ratio by remember(page.mImageUrl, imageRatios) { mutableFloatStateOf(imageRatios?.get(page.mImageUrl) ?: 0f) }
+    // A prefetched item might have been composed before its file dimensions were available.
+    val cachedRatio = remember(page.mImageUrl, imageRatios) { imageRatios?.observe(page.mImageUrl) }
+    val prefetchedRatio = cachedRatio?.collectAsState()?.value ?: 0f
+    var decodedRatio by remember(page.mImageUrl, imageRatios) { mutableFloatStateOf(0f) }
+    val ratio = decodedRatio.takeIf { it > 0f } ?: prefetchedRatio
     var loading by remember(page.mImageUrl) { mutableStateOf(true) }
     var hasDisplayedImage by remember(page.mImageUrl) { mutableStateOf(false) }
     var failed by remember(page.mImageUrl) { mutableStateOf(false) }
@@ -536,12 +556,13 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                     }
                     override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?, dataSource: DataSource, isFirstResource: Boolean): Boolean {
                         MangaScrollDiagnostics.event("IMAGE_READY") {
-                            "key=${mangaPageKey(page)} instance=$diagnosticInstance oldRatio=$ratio " +
+                            val oldRatio = decodedRatio.takeIf { it > 0f } ?: cachedRatio?.value ?: 0f
+                            "key=${mangaPageKey(page)} instance=$diagnosticInstance oldRatio=$oldRatio " +
                                 "width=${resource.intrinsicWidth} height=${resource.intrinsicHeight} source=$dataSource"
                         }
                         if (resource.intrinsicWidth > 0 && resource.intrinsicHeight > 0) {
                             imageRatios?.put(page.mImageUrl, resource.intrinsicWidth, resource.intrinsicHeight)
-                            ratio = resource.intrinsicWidth.toFloat() / resource.intrinsicHeight
+                            decodedRatio = resource.intrinsicWidth.toFloat() / resource.intrinsicHeight
                         }
                         hasDisplayedImage = true
                         loading = false; failed = false; return false
@@ -561,21 +582,24 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
     } else Modifier
     BoxWithConstraints(modifier.then(diagnosticModifier).background(background), contentAlignment = Alignment.Center) {
         val imageHeight = if (ratio > 0) maxWidth / ratio else viewportHeight
-        val verticalHeight = imageHeight
         val fit = paged || ui.horizontal
-        val loadingLayout = if ((if (fit) maxHeight else verticalHeight) < 200.dp) NgLoadingLayout.INLINE
+        val loadingLayout = if ((if (fit) maxHeight else imageHeight) < 200.dp) NgLoadingLayout.INLINE
             else NgLoadingLayout.CENTERED
-        val imageModifier = if (fit) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(imageHeight)
-        Box(if (fit) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(verticalHeight), Alignment.TopCenter) {
+        val pageBounds = if (fit) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(imageHeight).clipToBounds()
+        Box(pageBounds, Alignment.TopCenter) {
+            val imageModifier = Modifier.matchParentSize()
+            // A late ratio may resize the slot. Keep the drawable proportional and pinned at the top.
+            val imageScale = if (fit) ContentScale.Fit else ContentScale.FillWidth
+            val imageAlignment = if (fit) Alignment.Center else Alignment.TopCenter
             pdfPreview?.takeIf { loading && !failed }?.let { preview ->
                 GlideImage(preview, "PDF 预览 ${page.index + 1}", imageModifier,
-                    contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
+                    alignment = imageAlignment, contentScale = imageScale, colorFilter = filter,
                     requestBuilderTransform = { it.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE).skipMemoryCache(true) })
             }
             // Keep the original mounted while resolving/decoding a translation.
             key(page.mImageUrl, ui.sourceOrigin, retry, transform) {
                 GlideImage(page.mImageUrl, "${page.mChapterName} ${page.index + 1}", imageModifier,
-                    contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds,
+                    alignment = imageAlignment, contentScale = imageScale,
                     colorFilter = filter,
                     requestBuilderTransform = request)
             }
@@ -599,7 +623,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                                         override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?, dataSource: DataSource, isFirstResource: Boolean): Boolean {
                                             if (resource.intrinsicWidth > 0 && resource.intrinsicHeight > 0) {
                                                 imageRatios?.put(page.mImageUrl, resource.intrinsicWidth, resource.intrinsicHeight)
-                                                ratio = resource.intrinsicWidth.toFloat() / resource.intrinsicHeight
+                                                decodedRatio = resource.intrinsicWidth.toFloat() / resource.intrinsicHeight
                                             }
                                             translatedImageLoading = false
                                             return false
@@ -609,7 +633,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                         }
                     key(translated, translation.version, transform) {
                         GlideImage(translated, "译图 ${page.index + 1}", imageModifier,
-                            contentScale = if (fit) ContentScale.Fit else ContentScale.FillBounds, colorFilter = filter,
+                            alignment = imageAlignment, contentScale = imageScale, colorFilter = filter,
                             requestBuilderTransform = translatedRequest)
                     }
                 }
@@ -735,7 +759,7 @@ internal class MangaImagePreloader(
                         NgOriginalImageResources.resolve(snapshot, ResourcePriority.PREFETCH, allowNetwork = false).use { lease ->
                             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                             BitmapFactory.decodeFile(lease.file.absolutePath, options)
-                            imageRatios.put(url, options.outWidth, options.outHeight)
+                            imageRatios.put(url, options.outWidth, options.outHeight, onlyIfUnknown = true)
                         }
                     } catch (e: CancellationException) { throw e }
                     catch (_: Exception) { /* Cache eviction/version change: visible loading will retry. */ }

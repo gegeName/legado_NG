@@ -31,7 +31,7 @@ internal class MangaFlipController(
         dragTriggered = false
     }
 
-    fun onVisiblePage(page: BaseMangaPage?, currentChapterVisible: Boolean) {
+    fun onVisiblePage(page: BaseMangaPage?, currentChapterVisible: Boolean, scrolling: Boolean = false) {
         if (page == null) return
         val realPage = NgMangaLayout.progress(page, currentPage())
         if (realPage !is MangaPage && (realPage !is ReaderLoading || !realPage.isVolume)) return
@@ -42,7 +42,8 @@ internal class MangaFlipController(
         }
         if (isLocked()) return
         if (realPage.chapterIndex != currentChapter()) {
-            if (currentChapterVisible || !io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(
+            // Committing evicts an old chapter. Do not rebase the list out from under a drag/fling.
+            if (scrolling || currentChapterVisible || !io.legado.features.adapter.MangaReaderFeatures.canCrossChapter(
                     currentChapter(), realPage.chapterIndex, false,
                 )
             ) return
@@ -67,6 +68,7 @@ internal class MangaFlipController(
         pages: List<BaseMangaPage>,
         chapterIndex: Int,
         pointerCount: Int,
+        pendingPrepend: Boolean,
     ): Boolean {
         if (pointerCount > 1) dragMultiTouch = true
         if (isLocked() || isLoading() || scale != 1f || dragMultiTouch || dragTriggered) return dragTriggered
@@ -77,6 +79,7 @@ internal class MangaFlipController(
             return false
         }
         val forward = if (horizontal) (primary < 0f) != rtl else primary < 0f
+        if (!forward && pendingPrepend) return false
         val atEdge = if (forward) !list.canScrollForward else !list.canScrollBackward
         if (!atEdge || findEdgePage(list, pages, chapterIndex, forward) == null) return false
 
