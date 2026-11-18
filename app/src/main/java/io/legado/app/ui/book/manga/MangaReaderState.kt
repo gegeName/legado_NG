@@ -98,6 +98,8 @@ internal class MangaReaderState {
     var tailRetry by mutableStateOf(false)
     var preserveScrollOnUpdate by mutableStateOf(false)
     var jumpIndex by mutableIntStateOf(0)
+    var jumpPage by mutableStateOf<BaseMangaPage?>(null)
+        private set
     var jumpRevision by mutableIntStateOf(0)
     var turnDirection by mutableIntStateOf(1)
     var turnRevision by mutableIntStateOf(0)
@@ -110,6 +112,7 @@ internal class MangaReaderState {
             !touching && scale == 1f
 
     fun jumpTo(index: Int) {
+        jumpPage = pages.getOrNull(index)
         jumpIndex = index; jumpRevision++
         (pages.getOrNull(index) as? MangaPage)?.let {
             progressAnchor.begin(NgMangaLayout.neutral(it).key, jumpRevision.toLong(), android.os.SystemClock.elapsedRealtime())

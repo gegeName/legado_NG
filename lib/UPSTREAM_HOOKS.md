@@ -70,6 +70,7 @@
 | `app/src/main/java/io/legado/app/help/glide/OkHttpModelLoader.kt` | 有书籍请求快照时使用共享原图 fetcher；普通封面仍用原 fetcher | 缓存/配置版本 |
 | `app/src/main/java/io/legado/app/model/ReadManga.kt` | 重置/退出使资源会话失效，目录重排等待原图任务退出 | 迟到发布/重排屏障 |
 | `app/src/main/java/io/legado/app/ui/book/manga/MangaImages.kt` | 视口候选委托模块，24 张预算；尺寸只读规范缓存并持有租约 | 零网络预取/反向取消 |
+| `app/src/main/java/io/legado/app/ui/book/manga/MangaContinuousPosition.kt` | Compose 列表按完整显示窗口中的页面标识和测量偏移保位；恢复进度逐帧确认目标，确认前暂停跨章 | 长章节双向窗口重排、尾部追加、恢复进度期间前插 |
 | `app/src/main/java/io/legado/app/ui/book/manga/MangaFlipController.kt` | 连续阅读翻章状态调用模块跨章策略，原始页映射和手势门控由宿主管理 | 跨章等待/手势门控 |
 | `app/src/main/java/io/legado/app/ui/book/manga/MangaPagedImages.kt` | 模块双页布局映射、原始跳页到显示槽、双图独立加载/翻译 | 原始页码/RTL/翻页版本 |
 | `app/src/main/java/io/legado/app/ui/book/manga/MangaReaderState.kt` | 独立漫画章节/原图设置映射 | 一次迁移、设置隔离 |

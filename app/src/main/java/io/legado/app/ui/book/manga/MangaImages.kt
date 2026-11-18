@@ -134,7 +134,6 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
         NgMangaLayout.display(ui.pages, ui.horizontal && ui.doublePage, ui.rtl)
     })
     val prefetchItems = remember(displayPages) { NgMangaLayout.prefetchItems(displayPages) }
-    val displayJump = NgMangaLayout.slot(displayPages, ui.pages.getOrNull(ui.jumpIndex), ui.jumpIndex)
     val itemPrefetch = remember(ui.bookUrl, ui.sourceOrigin) { MangaListPrefetchStrategy() }
     val list = rememberLazyListState(prefetchStrategy = itemPrefetch)
     DisposableEffect(itemPrefetch) { onDispose { itemPrefetch.clear() } }
@@ -156,8 +155,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
     }
     val latestMenu by rememberUpdatedState(onMenu)
     var pan by remember { mutableStateOf(Offset.Zero) }
-    var pendingJump by remember { mutableStateOf(ui.jumpRevision > 0) }
-    var appliedJump by remember { mutableIntStateOf(0) }
+    val relocating by rememberUpdatedState(MangaContinuousPosition(ui, list, displayPages, onPage))
     val context = LocalContext.current
     val imageRatios = remember(ui.bookUrl, ui.sourceOrigin) { MangaImageRatioCache() }
     val imageTransformation = remember(ui.colorMode, ui.threshold) {
@@ -186,7 +184,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                 val info = list.layoutInfo
                 "first=${list.firstVisibleItemIndex} offset=${list.firstVisibleItemScrollOffset} " +
                     "scrolling=${list.isScrollInProgress} touch=${ui.touching} scale=${ui.scale} pan=$pan " +
-                    "jump=${ui.jumpRevision} applied=$appliedJump pending=$pendingJump " +
+                    "jump=${ui.jumpRevision} relocating=$relocating " +
                     "viewport=${info.viewportStartOffset}:${info.viewportEndOffset} total=${info.totalItemsCount} " +
                     "items=${info.visibleItemsInfo.joinToString(";") { "${it.key},${it.offset},${it.size}" }}"
             }.collect { details -> MangaScrollDiagnostics.event("LAYOUT") { details } }
@@ -195,19 +193,6 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
         LaunchedEffect(ui.scaleEnabled) {
             if (!ui.scaleEnabled) { ui.scale = 1f; pan = Offset.Zero }
         }
-        LaunchedEffect(ui.jumpRevision) {
-            if (ui.jumpRevision > 0 && displayPages.isNotEmpty()) {
-                val revision = ui.jumpRevision
-                pendingJump = true
-                try {
-                    MangaScrollDiagnostics.event("JUMP") { "revision=$revision index=${displayJump}" }
-                    withFrameNanos { }
-                    list.scrollToItem(displayJump.coerceIn(displayPages.indices))
-                    withFrameNanos { }
-                    ui.pages.getOrNull(ui.jumpIndex)?.let(latestPage)
-                } finally { if (ui.jumpRevision == revision) { appliedJump = revision; pendingJump = false } }
-            }
-        }
         LaunchedEffect(ui.chapterIndex, ui.loading, ui.tailRetry, ui.error) {
             if (ui.tailRetry || ui.error != null) flipController.onLoadFail()
         }
@@ -215,11 +200,12 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
             val distance = (if (ui.horizontal) width else height / ui.scale.coerceAtMost(1f)) * direction
             list.animateScrollBy(distance)
         }
-        LaunchedEffect(ui.turnRevision) {
+        LaunchedEffect(ui.turnRevision, relocating) {
+            if (relocating) return@LaunchedEffect
             ui.claimTurn()?.takeIf { displayPages.isNotEmpty() }?.let { turn(it) }
         }
-        LaunchedEffect(ui.autoRunning, ui.autoMode, ui.autoScrollInterval) {
-            if (!ui.autoRunning) return@LaunchedEffect
+        LaunchedEffect(ui.autoRunning, ui.autoMode, ui.autoScrollInterval, relocating) {
+            if (!ui.autoRunning || relocating) return@LaunchedEffect
             when (ui.autoMode) {
                 MangaAutoMode.SCROLL -> {
                     var previous = withFrameNanos { it }
@@ -253,7 +239,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                         if (visible.index == displayPages.size) visible.key == mangaTailKey(displayPages)
                         else NgMangaLayout.measuredPage(displayPages, visible.index, visible.key) != null
                     }
-                if (pendingJump || appliedJump != ui.jumpRevision || !layoutMatches) null else {
+                if (relocating || !layoutMatches) null else {
                     val measured = info.visibleItemsInfo.mapNotNull { visible ->
                         NgMangaLayout.measuredPage(displayPages, visible.index, visible.key)?.let { page ->
                             MangaReaderFeatures.VisibleItem(mangaPageKey(page), page.chapterIndex, visible.offset, visible.size)
@@ -367,7 +353,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                         do {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             total += event.calculatePan()
-                            triggered = flipController.onTouchDrag(
+                            triggered = (!relocating && flipController.onTouchDrag(
                                 total = total,
                                 touchSlop = viewConfiguration.touchSlop,
                                 horizontal = ui.horizontal,
@@ -377,7 +363,7 @@ private fun MangaContinuousImages(ui: MangaReaderState, onPage: (BaseMangaPage) 
                                 pages = displayPages,
                                 chapterIndex = ui.chapterIndex,
                                 pointerCount = event.changes.count { it.pressed },
-                            ) || triggered
+                            )) || triggered
                             if (triggered) event.changes.forEach { it.consume() }
                         } while (event.changes.any { it.pressed })
                     } finally {

@@ -75,7 +75,7 @@ internal fun MangaPagedImages(ui: MangaReaderState, onPage: (BaseMangaPage) -> U
         NgMangaLayout.display(ui.pages, ui.horizontal && ui.doublePage, ui.rtl)
     })
     val prefetchItems = remember(displayPages) { NgMangaLayout.prefetchItems(displayPages) }
-    val displayJump = NgMangaLayout.slot(displayPages, ui.pages.getOrNull(ui.jumpIndex), ui.jumpIndex)
+    val displayJump = NgMangaLayout.slot(displayPages, ui.jumpPage, ui.jumpIndex)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val latestPage by rememberUpdatedState(onPage)
