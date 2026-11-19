@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -13,6 +12,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.legado.app.R
 import io.legado.app.constant.PreferKey
+import io.legado.app.help.config.ReadBottomTool
 import io.legado.app.ui.design.theme.InterfaceFontTestApplication
 import io.legado.app.ui.design.theme.NgAppTheme
 import io.legado.app.ui.design.theme.NgLegacyThemeInput
@@ -34,6 +34,8 @@ class ReadMoreConfigScreenTest {
     fun groupedSettingsKeepTheirScopesAndDispatchOriginalActions() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val events = mutableListOf<Pair<String, Any>>()
+        val shortcuts = mutableListOf<ReadBottomTool>()
+        var openedToolbar = false
         var state by mutableStateOf(
             ReadMoreConfigUiState(
                 booleans = mapOf(
@@ -90,10 +92,20 @@ class ReadMoreConfigScreenTest {
         ))
         composeRule.setContent {
             NgAppTheme(snapshot = theme, updateSystemBars = false) {
-                ReadMoreConfigScreen(state, actions)
+                ReadMoreConfigScreen(
+                    state = state,
+                    actions = actions,
+                    hiddenTools = setOf(ReadBottomTool.SCROLL, ReadBottomTool.FLOATING),
+                    onOpenBottomToolbar = { openedToolbar = true },
+                    onOpenShortcut = { shortcuts += it },
+                )
             }
         }
 
+        composeRule.assertDrawerTextStyle(context.getString(R.string.read_more_settings_title), 17)
+        composeRule.assertDrawerTextStyle(context.getString(R.string.pt_hide_status_bar), 14)
+        composeRule.assertDrawerTextStyle(context.getString(R.string.screen_direction), 15)
+        composeRule.assertDrawerTextStyle("System orientation", 13)
         listOf(
             R.string.read_settings_tab_interface,
             R.string.read_settings_current_book,
@@ -109,6 +121,11 @@ class ReadMoreConfigScreenTest {
         ).forEach { composeRule.onNodeWithText(context.getString(it)).assertExists() }
         composeRule.onNodeWithText(context.getString(R.string.read_settings_tab_content))
             .assertDoesNotExist()
+        composeRule.onNodeWithText(context.getString(R.string.read_menu_scroll)).assertDoesNotExist()
+        composeRule.onNodeWithText(context.getString(R.string.read_bottom_toolbar))
+            .performScrollTo().performClick()
+        composeRule.onNodeWithText(context.getString(R.string.read_menu_floating))
+            .performScrollTo().performClick()
 
         composeRule.onNodeWithText("System orientation").performScrollTo().performClick()
         composeRule.onNodeWithText("Portrait orientation").performClick()
@@ -124,6 +141,8 @@ class ReadMoreConfigScreenTest {
         composeRule.onNodeWithText("View image").performClick()
 
         composeRule.runOnIdle {
+            assertEquals(true, openedToolbar)
+            assertEquals(listOf(ReadBottomTool.FLOATING), shortcuts)
             assertEquals(
                 listOf(
                     PreferKey.screenOrientation to "1",

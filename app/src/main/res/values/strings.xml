@@ -69,6 +69,16 @@
     <string name="book_info_play">Play</string>
     <string name="auto_load_book_other_works">Load related</string>
     <string name="book_info_settings">Book settings</string>
+    <string name="source_editor_settings">Editor settings</string>
+    <string name="source_editor_import_share">Import and share</string>
+    <string name="source_editor_appearance">Appearance</string>
+    <string name="source_editor_theme">Editor theme</string>
+    <string name="source_editor_one_dark" translatable="false">One Dark</string>
+    <string name="source_editor_vscode_dark_plus" translatable="false">VS Code Dark+</string>
+    <string name="source_editor_solarized_light" translatable="false">Solarized Light</string>
+    <string name="source_editor_editing">Editing</string>
+    <string name="source_editor_show_image">Show background image</string>
+    <string name="source_editor_image_failed">Could not apply the background image</string>
     <string name="book_info_settings_book">This book</string>
     <string name="book_info_settings_general">All book details</string>
     <string name="book_info_settings_variables">Variables</string>
@@ -754,6 +764,7 @@
     <string name="read_catalog_collapse_note">Collapse note</string>
     <string name="read_catalog_ascending">Ascending</string>
     <string name="read_catalog_descending">Descending</string>
+    <string name="read_catalog_locate_current_chapter">Locate current chapter</string>
     <string name="read_catalog_vip_unpaid">VIP chapter, not purchased</string>
     <string name="read_catalog_vip_purchased">VIP chapter, purchased</string>
     <string name="read_catalog_style">Catalog drawer style</string>
@@ -812,12 +823,6 @@
     <string name="listening_motion_fluid_water">Water</string>
     <string name="listening_motion_fluid_edge">Outline</string>
     <string name="listening_motion_fluid_summary">Fluid · %1$s</string>
-    <string name="listening_motion_cartoon">Cartoon</string>
-    <string name="listening_motion_cartoon_type">Cartoon style</string>
-    <string name="listening_motion_cartoon_sakura">Lakefront sakura</string>
-    <string name="listening_motion_cartoon_cats">Curious cats</string>
-    <string name="listening_motion_cartoon_rain_night">Rainy night</string>
-    <string name="listening_motion_cartoon_summary">Cartoon · %1$s</string>
     <string name="listening_motion_color">Effect color</string>
     <string name="listening_motion_color_original">Original</string>
     <string name="listening_motion_color_cover">From cover</string>
@@ -1652,6 +1657,8 @@
     <string name="restore_ignore_summary">Ignore some contents while restoring</string>
     <string name="read_config">Reading interface settings</string>
     <string name="read_more_settings_title">Reading settings</string>
+    <string name="read_bottom_toolbar">Bottom toolbar</string>
+    <string name="read_bottom_toolbar_shortcuts">Shortcuts</string>
     <string name="read_settings_tab_interface">Interface</string>
     <string name="read_settings_tab_page">Paging</string>
     <string name="read_settings_tab_content">Text</string>
@@ -2678,6 +2685,7 @@
     <string name="book_source_type_video">Video</string>
     <string name="highlight_nine_slice_estimate">Estimate cuts</string>
     <string name="bookshelf_show_reading_progress">Show reading progress</string>
+    <string name="bookshelf_reading_progress_value">Reading progress %1$s</string>
     <string name="bookshelf_show_background">Show background container</string>
     <string name="rss_editor_undo">Undo</string>
     <string name="rss_editor_redo">Redo</string>
@@ -2805,16 +2813,45 @@
     <string name="listening_effect_library">Listening effects</string>
     <string name="listening_effect_type">Listening effect</string>
     <string name="listening_effect_edit">Edit listening effect</string>
-    <string name="listening_effect_import">Import listening effect</string>
+    <string name="listening_effect_import">Import effect pack</string>
     <string name="listening_effect_import_success">Imported %1$s</string>
-    <string name="listening_effect_update">Update listening effect</string>
-    <string name="listening_effect_replace">Replace listening effect</string>
-    <string name="listening_effect_downgrade">Downgrade listening effect</string>
+    <string name="listening_effect_update">Update effect pack</string>
+    <string name="listening_effect_replace">Replace effect pack</string>
+    <string name="listening_effect_downgrade">Downgrade effect pack</string>
     <string name="listening_effect_installed">Listening effect already installed</string>
     <string name="listening_effect_uninstall">Uninstall listening effect</string>
     <string name="listening_effect_uninstall_current">The player will return to its base background.</string>
-    <string name="listening_effect_code_notice">Listening effects contain executable code. Confirm that you trust the source.</string>
     <string name="read_page_section_layout">Page layout</string>
     <string name="read_page_section_keys">Key controls</string>
     <string name="read_page_section_touch">Touch controls</string>
+    <string name="paragraph_icon_title">Comment icon</string>
+    <string name="paragraph_icon_rounded">Rounded</string>
+    <string name="paragraph_icon_dialog">Speech</string>
+    <string name="paragraph_icon_minimal">Minimal</string>
+    <string name="paragraph_icon_edit">Edit SVG</string>
+    <string name="paragraph_icon_edit_named">Edit %1$s</string>
+    <string name="paragraph_icon_delete_named">Delete %1$s</string>
+    <string name="paragraph_icon_default_name">Custom.svg</string>
+    <string name="paragraph_icon_size">Size</string>
+    <string name="paragraph_icon_follow_text">Use text color</string>
+    <string name="paragraph_icon_color">Icon colors</string>
+    <string name="paragraph_icon_day_short">Day</string>
+    <string name="paragraph_icon_night_short">Night</string>
+    <string name="paragraph_icon_day_color">Day · Icon color</string>
+    <string name="paragraph_icon_night_color">Night · Icon color</string>
+    <string name="paragraph_icon_invalid">Check the SVG format</string>
+    <string name="paragraph_icon_enabled">Enable icon replacement</string>
+    <string name="paragraph_icon_source_hint">Source bubble</string>
+    <string name="paragraph_icon_new">New bubble</string>
+    <string name="paragraph_icon_local">Local import</string>
+    <string name="paragraph_icon_network">Network import</string>
+    <string name="paragraph_icon_clipboard">Clipboard import</string>
+    <string name="paragraph_icon_name">Bubble name</string>
+    <string name="paragraph_icon_url">SVG URL</string>
+    <string name="paragraph_icon_empty">No bubbles. Use More to add one or restore defaults.</string>
+    <string name="paragraph_icon_clipboard_empty">Clipboard is empty</string>
+    <string name="paragraph_icon_importing">Importing…</string>
+    <string name="paragraph_icon_import_action">Import</string>
+    <string name="paragraph_icon_delete_confirm">Delete “%1$s”?</string>
+    <string name="paragraph_icon_restore_confirm">Delete all created and imported bubbles and restore the original built-in bubbles?</string>
 </resources>

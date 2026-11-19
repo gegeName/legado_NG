@@ -71,6 +71,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
     val otherWorksLoadingData = MutableLiveData(false)
     val bookshelfChanged = MutableLiveData<Unit>()
     val webFiles = mutableListOf<WebFile>()
+    val refreshFinished = MutableLiveData<Unit>()
     private class BookRequest(
         val scope: CoroutineScope,
         @Volatile var inBookshelf: Boolean = false,
@@ -127,7 +128,6 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
     private val bookshelf: MutableSet<String> = ConcurrentHashMap.newKeySet()
     val waitDialogData = MutableLiveData<Boolean>()
     val actionLive = MutableLiveData<String>()
-    val refreshFinished = MutableLiveData<Unit>()
 
     init {
         execute {
@@ -700,6 +700,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
             book.latestChapterTitle = "已下载"
             bookData.value = book
             chapterListData.value = emptyList()
+            refreshFinished.value = Unit
         }
     }
 
