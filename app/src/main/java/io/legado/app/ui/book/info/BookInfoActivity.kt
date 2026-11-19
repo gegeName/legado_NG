@@ -321,7 +321,7 @@ class BookInfoActivity :
             upCacheProgress(snapshot)
         }
         viewModel.refreshFinished.observe(this) {
-            upLoading(false, viewModel.chapterListData.value)
+            upLoading(false, viewModel.currentChapterList())
         }
         viewModel.otherWorksData.observe(this) { showOtherWorks(it) }
         viewModel.otherWorksLoadingData.observe(this) {
