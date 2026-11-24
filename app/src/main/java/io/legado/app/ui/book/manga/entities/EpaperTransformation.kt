@@ -32,7 +32,9 @@ class EpaperTransformation(
         outWidth: Int,
         outHeight: Int,
     ): Bitmap {
-        val resultBitmap = pool.get(outWidth, outHeight, Bitmap.Config.ARGB_8888)
+        val width = toTransform.width
+        val height = toTransform.height
+        val resultBitmap = pool.get(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(resultBitmap)
         val paint = Paint()
 
@@ -42,8 +44,8 @@ class EpaperTransformation(
         paint.colorFilter = filter
         canvas.drawBitmap(toTransform, 0f, 0f, paint)
 
-        val pixels = IntArray(outWidth * outHeight)
-        resultBitmap.getPixels(pixels, 0, outWidth, 0, 0, outWidth, outHeight)
+        val pixels = IntArray(width * height)
+        resultBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
         for (i in pixels.indices) {
             val pixel = pixels[i]
@@ -51,7 +53,7 @@ class EpaperTransformation(
             pixels[i] =
                 if (gray < threshold) Color.BLACK else Color.WHITE
         }
-        resultBitmap.setPixels(pixels, 0, outWidth, 0, 0, outWidth, outHeight)
+        resultBitmap.setPixels(pixels, 0, width, 0, 0, width, height)
 
         return resultBitmap
     }

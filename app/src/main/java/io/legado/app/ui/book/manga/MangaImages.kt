@@ -55,6 +55,7 @@ import com.bumptech.glide.load.engine.GlideException
 import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.target.Target
 import io.legado.app.help.glide.progress.ProgressManager
+import io.legado.app.help.glide.withMangaBitmapSize
 import io.legado.app.R
 import io.legado.app.model.BookCover
 import io.legado.app.model.ReadManga
@@ -598,7 +599,11 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
             pdfPreview?.takeIf { loading && !failed }?.let { preview ->
                 GlideImage(preview, "PDF 预览 ${page.index + 1}", imageModifier,
                     alignment = imageAlignment, contentScale = imageScale, colorFilter = filter,
-                    requestBuilderTransform = { it.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE).skipMemoryCache(true) })
+                    requestBuilderTransform = {
+                        it.diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE)
+                            .skipMemoryCache(true)
+                            .withMangaBitmapSize(context.resources.displayMetrics.widthPixels)
+                    })
             }
             // Keep the original mounted while resolving/decoding a translation.
             key(page.mImageUrl, ui.sourceOrigin, retry, transform) {
@@ -616,8 +621,7 @@ internal fun MangaImage(page: MangaPage, ui: MangaReaderState, viewportHeight: a
                                     .skipMemoryCache(false)
                                     .signature(com.bumptech.glide.signature.ObjectKey(translation.version.orEmpty()))
                                     .priority(com.bumptech.glide.Priority.HIGH)
-                                    .override(context.resources.displayMetrics.widthPixels, Target.SIZE_ORIGINAL)
-                                    .apply { if (transform != null) transform(transform) }
+                                    .withMangaBitmapSize(context.resources.displayMetrics.widthPixels, transform)
                                     .listener(object : RequestListener<Drawable> {
                                         override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
                                             translatedImageLoading = false

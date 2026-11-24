@@ -21,7 +21,7 @@ class GrayscaleTransformation : BitmapTransformation() {
         outWidth: Int,
         outHeight: Int,
     ): Bitmap {
-        val resultBitmap = pool.get(outWidth, outHeight, Bitmap.Config.ARGB_8888)
+        val resultBitmap = pool.get(toTransform.width, toTransform.height, Bitmap.Config.ARGB_8888)
 
         val canvas = Canvas(resultBitmap)
         val paint = Paint()

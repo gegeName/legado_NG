@@ -24,7 +24,6 @@ import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.RequestOptions
 import com.bumptech.glide.request.target.Target
-import com.bumptech.glide.request.target.Target.SIZE_ORIGINAL
 import io.legado.app.R
 import io.legado.app.constant.PreferKey
 import io.legado.app.data.entities.BaseSource
@@ -37,6 +36,7 @@ import io.legado.app.help.config.NgCoverAlbumStore
 import io.legado.app.help.glide.BlurTransformation
 import io.legado.app.help.glide.ImageLoader
 import io.legado.app.help.glide.OkHttpModelLoader
+import io.legado.app.help.glide.withMangaBitmapSize
 import io.legado.app.model.analyzeRule.AnalyzeRule
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setCoroutineContext
 import io.legado.app.model.analyzeRule.AnalyzeUrl
@@ -198,15 +198,8 @@ object BookCover {
             }
             .apply(options)
             .priority(com.bumptech.glide.Priority.HIGH)
-            .override(context.resources.displayMetrics.widthPixels, SIZE_ORIGINAL)
+            .withMangaBitmapSize(context.resources.displayMetrics.widthPixels, transformation)
             .diskCacheStrategy(DiskCacheStrategy.ALL)
-            .let {
-                if (transformation != null) {
-                    it.transform(transformation)
-                } else {
-                    it
-                }
-            }
     }
 
     fun preloadManga(
