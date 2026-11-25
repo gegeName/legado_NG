@@ -8,6 +8,7 @@ import io.legado.features.yiciyuan.YiciyuanImportAdapter
 import io.legado.features.yiciyuan.YiciyuanRulePolicy
 import io.legado.features.yiciyuan.YiciyuanSourceConverter
 import io.legado.features.yiciyuan.YiciyuanScriptSupport
+import io.legado.features.yiciyuan.normalizeLegacyHtmlExtractionFallbacks
 import io.legado.features.api.tts.ImportedVoice
 import io.legado.features.api.tts.JsonResponseValidation
 import io.legado.features.api.tts.ScriptEngineDraft
@@ -30,6 +31,7 @@ object FeatureAssembly {
 
     fun normalizeChapterUrlRule(rule: String?, sourceUrl: String): String? =
         YiciyuanSourceConverter.normalizeChapterUrlRule(rule, sourceUrl)
+    fun normalizeHtmlExtractionFallbacks(rule: String): String = normalizeLegacyHtmlExtractionFallbacks(rule)
     fun normalizeJsonWildcardRule(rule: String): String = YiciyuanSourceConverter.normalizeJsonWildcardRule(rule)
     fun isInvalidChapterUrl(url: String?): Boolean = YiciyuanSourceConverter.isInvalidChapterUrl(url)
     fun isInvalidBookUrl(url: String?, baseUrl: String): Boolean = YiciyuanSourceConverter.isInvalidBookUrl(url, baseUrl)

@@ -1,6 +1,7 @@
 package io.legado.app.model.analyzeRule
 
 import androidx.annotation.Keep
+import io.legado.features.adapter.FeatureAssembly.normalizeHtmlExtractionFallbacks
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.parser.Parser
@@ -18,11 +19,6 @@ class AnalyzeByJSoup(doc: Any) {
 
     companion object {
         private val nullSet = setOf(null)
-        private val singleSelectorPipe = Regex("""(?<!\|)\|(?!\|)""")
-        private val selectorAlternation = Regex("""\|\|?""")
-        private val simpleHtmlExtraction = Regex(
-            """[\p{L}\w.#-]+(?:@[\p{L}\w.#-]+)*@(?:text|textNodes|ownText|html|all|href|src)"""
-        )
     }
 
     private var element: Element = parse(doc)
@@ -89,7 +85,7 @@ class AnalyzeByJSoup(doc: Any) {
 
         } else {
 
-            val ruleAnalyzes = RuleAnalyzer(normalizeExtractionFallbacks(sourceRule.elementsRule))
+            val ruleAnalyzes = RuleAnalyzer(normalizeHtmlExtractionFallbacks(sourceRule.elementsRule))
             val ruleStrS = ruleAnalyzes.splitRule("&&", "||", "%%")
 
             val results = ArrayList<List<String>>()
@@ -128,13 +124,6 @@ class AnalyzeByJSoup(doc: Any) {
             }
         }
         return textS
-    }
-
-    private fun normalizeExtractionFallbacks(rule: String): String {
-        if ('|' !in rule || !singleSelectorPipe.containsMatchIn(rule) || "##" in rule) return rule
-        val branches = rule.split(selectorAlternation).map { it.trim() }
-        if (branches.any { !simpleHtmlExtraction.matches(it) }) return rule
-        return branches.joinToString("||")
     }
 
     /**

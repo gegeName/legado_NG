@@ -13,6 +13,7 @@
 | `app/src/main/assets/web/help/md/jsHelp.md` | 新增异次元 JS 兼容 API 帮助 | 与实际签名核对 |
 | `app/src/main/java/io/legado/app/ui/association/BookSourceImportReader.kt` | 文件/URL/文本逐条转换；普通 JSON 保留原导入与预览/保存流程 | 导入回归 |
 | `app/src/main/java/io/legado/app/ui/book/source/edit/BookSourceEditViewModel.kt` | 编辑导入经同一转换入口 | 普通 JSON / 异次元 |
+| `app/src/main/java/io/legado/app/model/analyzeRule/AnalyzeByJSoup.kt` | HTML 取值候选的分隔符兼容委托给 lib，对所有书源生效 | HTML 规则回归 |
 | `app/src/main/java/io/legado/app/model/analyzeRule/AnalyzeRule.kt` | 标记源的内容/规则/结果兼容；默认策略原值；getStringSafe 保留取消 | 规则与取消 |
 | `app/src/main/java/io/legado/app/model/analyzeRule/AnalyzeUrl.kt` | 标记源显式 webJs 时交给已有 WebView；视频解析读取请求头/脚本/延迟，重定向保留规则上下文，兼容百分号编码 URL 选项 | 编码选项/源签名上下文 |
 | `app/src/main/java/io/legado/app/help/http/BackstageWebView.kt` | 按来源实现增加资源请求拦截及大小写无关匹配，原规则脚本/延迟/HTML 回退继续复用；单次完成与取消清理 | 视频嗅探/正常规则网页 |
