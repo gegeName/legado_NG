@@ -1,5 +1,27 @@
 package io.legado.app.ui.config
 
+import android.net.Uri
+
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import io.legado.app.help.ai.AI_BOOK_SEARCH_AUDIO_SCOPE_MEDIA
+import io.legado.app.help.ai.AI_BOOK_SEARCH_SCOPE
+import io.legado.app.help.ai.AiBookSearchAvailability
+import io.legado.app.help.ai.AiBookSearchCandidate
+import io.legado.app.help.ai.AiBookSearchReply
+import io.legado.app.help.ai.AiBookSourceLookup
+import io.legado.app.help.ai.AiBookSourceStatus
+import io.legado.app.help.ai.bookSearchAvailability
+import io.legado.app.help.ai.bookSearchDraft
+import io.legado.app.help.ai.explicitAiBookSearchCandidate
+import io.legado.app.ui.book.changesource.ChangeSourceFilter
+import io.legado.app.ui.book.info.BookInfoActivity
+import io.legado.app.ui.book.info.EXTRA_BOOK_INFO_SEARCH_RESULT
+import io.legado.app.ui.book.search.SearchScopeDialog
+import io.legado.app.constant.BookSourceType
+import io.legado.app.web.mcp.McpPreciseBookSearch
+
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -10,9 +32,13 @@ import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import android.os.SystemClock
 import android.text.Layout
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.method.LinkMovementMethod
+import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -23,6 +49,8 @@ import android.widget.Toast
 import androidx.annotation.DrawableRes
 import androidx.activity.ComponentDialog
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedVisibility
@@ -42,15 +70,22 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.add
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -60,9 +95,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -70,7 +108,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -79,13 +119,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.CallSplit
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddComment
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Menu
@@ -103,8 +143,6 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Image as ImageIcon
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -130,9 +168,12 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -140,32 +181,52 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -173,9 +234,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
+import androidx.core.view.doOnLayout
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
@@ -197,31 +260,46 @@ import io.legado.app.help.ai.AgentModeRegistry
 import io.legado.app.help.ai.AiChatClient
 import io.legado.app.help.ai.AiActiveSkillSnapshot
 import io.legado.app.help.ai.AiAvailableSkillSnapshot
-import io.legado.app.help.ai.AiChatContextEvent
-import io.legado.app.help.ai.AiChatContextEventType
 import io.legado.app.help.ai.AiChatContextManager
-import io.legado.app.help.ai.AiChatDurableContextUpdate
 import io.legado.app.help.ai.AiChatContextUsage
 import io.legado.app.help.ai.AiChatCompactionRecord
 import io.legado.app.help.ai.AiChatPromptUsageAnchor
 import io.legado.app.help.ai.AiChatHistoryStore
+import io.legado.app.help.ai.AiChatGptException
 import io.legado.app.help.ai.AiChatInteraction
 import io.legado.app.help.ai.AiChatInteractionOption
 import io.legado.app.help.ai.AiChatInteractionParser
+import io.legado.app.help.ai.AiChatInteractionRender
 import io.legado.app.help.ai.AiChatInteractionPolicyContract
 import io.legado.app.help.ai.AiChatInteractionPolicyRegistry
 import io.legado.app.help.ai.AiChatInteractionMemoryWriter
 import io.legado.app.help.ai.AiChatInteractionSubmit
 import io.legado.app.help.ai.AiChatInteractionType
 import io.legado.app.help.ai.AiChatMessageSnapshot
+import io.legado.app.help.ai.codexImageFile
+import io.legado.app.help.ai.AI_IMAGE_ATTACHMENT_LIMIT
+import io.legado.app.help.ai.AiImageAssets
+import io.legado.app.help.ai.availableCodexImageProvider
+import io.legado.app.help.ai.isCodexChatSelection
+import io.legado.app.help.ai.isDirectImageAction
+import io.legado.app.help.ai.isCodexImage
 import io.legado.app.help.ai.AiChatSessionSnapshot
-import io.legado.app.help.ai.AiChatStreamUpdate
 import io.legado.app.help.ai.AiChatTurnResult
 import io.legado.app.help.ai.AiConfig
 import io.legado.app.help.ai.AiMemoryTraceItem
+import io.legado.app.help.ai.AiWebAccess
+import io.legado.app.help.ai.AiWebActivity
+import io.legado.app.help.ai.AiWebActivityAction
+import io.legado.app.help.ai.AiExternalSearchStore
+import io.legado.app.help.ai.hasLegacyChatGptNativeLabel
+import io.legado.app.help.ai.webAccess
+import io.legado.app.help.ai.webUrl
+import io.legado.app.help.ai.withInlineLinks
 import io.legado.app.help.ai.AiModelAbility
-import io.legado.app.help.ai.AiModelRegistry
-import io.legado.app.help.ai.AiPendingToolCall
+import io.legado.app.help.ai.AiModelGenerationIssue
+import io.legado.app.help.ai.AiModelSelection
+import io.legado.app.help.ai.AiProviderSetting
+import io.legado.app.help.ai.AiProviderStore
 import io.legado.app.help.ai.AiSkillRegistry
 import io.legado.app.help.ai.AiSkillCapabilityGrantStore
 import io.legado.app.help.ai.AiSkillPackageRegistry
@@ -229,13 +307,14 @@ import io.legado.app.help.ai.AiSkillPresentation
 import io.legado.app.help.ai.AiSkillScope
 import io.legado.app.help.ai.resolveAgentModeEntryLaunch
 import io.legado.app.help.ai.resolveAgentModeEntryMemoryProbeTarget
+import io.legado.app.help.ai.resolveModelGenerationRoute
 import io.legado.app.help.ai.runtime.AgentSkillRuntimeDeclaration
 import io.legado.app.help.ai.runtime.ToolExecutionReceipt
 import io.legado.app.help.config.NgThemeRuntimeAssets
 import io.legado.app.help.config.ThemeConfig
 import io.legado.app.ui.design.theme.NgInterfaceFontMarkwonPlugin
 import io.legado.app.ui.widget.compose.NgExpandableChildRow
-import io.legado.app.ui.widget.compose.NgExpandableChildGroup
+import io.legado.app.ui.widget.compose.NgExpandableListVariant
 import io.legado.app.ui.widget.compose.NgExpandableSectionHeader
 import io.legado.app.ui.widget.compose.NgFunctionMenu
 import io.legado.app.ui.widget.compose.NgFunctionMenuAction
@@ -244,16 +323,37 @@ import io.legado.app.ui.widget.compose.toggleNgExpandedKey
 import io.legado.app.ui.widget.dialog.applyNgWindow
 import io.legado.app.ui.widget.dialog.PhotoDialog
 import io.legado.app.ui.design.components.compose.NgBottomDrawerSurface
+import io.legado.app.ui.design.components.compose.NgCircularSelectionIndicator
+import io.legado.app.ui.design.components.compose.NgDialog
+import io.legado.app.ui.design.components.compose.NgDialogTextActionButton
+import io.legado.app.ui.design.components.compose.NgDotsLoadingIndicator
+import io.legado.app.ui.design.components.NgDialogVariant
 import io.legado.app.ui.design.components.compose.NgDrawerContentCardStyle
-import io.legado.app.ui.design.components.compose.NgSearchBar
+import io.legado.app.ui.design.components.compose.NgFloatingIconToolbar
+import io.legado.app.ui.design.components.compose.NgFloatingIconToolbarAction
+import io.legado.app.ui.design.components.compose.NgFloatingSearchToolbar
+import io.legado.app.ui.design.components.compose.NgFloatingTitleToolbar
+import io.legado.app.ui.design.components.compose.NgFormGroupDivider
+import io.legado.app.ui.design.components.compose.NgFormPanel
+import io.legado.app.ui.design.components.compose.NgGlassDefaults
+import io.legado.app.ui.design.components.compose.NgLiquidGlassBackdrop
+import io.legado.app.ui.design.components.compose.NgLiquidGlassBackdropProvider
+import io.legado.app.ui.design.components.compose.NgLongDrawerHeader
+import io.legado.app.ui.design.components.compose.NgMaterialRole
+import io.legado.app.ui.design.components.compose.NgPaneDialog
+import io.legado.app.ui.design.components.compose.NgPopupToggleState
 import io.legado.app.ui.design.components.compose.NgSideDrawerSurface
+import io.legado.app.ui.design.components.compose.NgVisualSurface
 import io.legado.app.ui.design.components.compose.ngDrawerContentCardColor
 import io.legado.app.ui.design.components.compose.ngDrawerPrimaryTextColor
 import io.legado.app.ui.design.components.compose.ngDrawerSecondaryTextColor
+import io.legado.app.ui.design.components.compose.ngRecordLiquidGlassBackdrop
+import io.legado.app.ui.design.components.compose.rememberNgLiquidGlassBackdrop
 import io.legado.app.ui.design.theme.NgAppTheme
 import io.legado.app.ui.design.theme.NgTheme
 import io.legado.app.ui.design.theme.NgThemeGradientBackground
 import io.legado.app.ui.design.theme.NgEffectThemeBackground
+import io.legado.app.ui.design.theme.NgSolidButtonPalette
 import io.legado.app.utils.GSON
 import io.legado.app.utils.dpToPx
 import io.legado.app.utils.openUrl
@@ -268,11 +368,12 @@ import io.noties.markwon.image.glide.GlideImagesPlugin
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import java.io.File
@@ -301,9 +402,12 @@ class AiChatActivity : AppCompatActivity() {
         const val EXTRA_MODE_ENTRY_CONTEXT = "mode_entry_context"
         const val EXTRA_INITIAL_INPUT = "initial_input"
         const val EXTRA_EXPAND_SUGGESTIONS = "expand_suggestions"
+        internal const val EXTRA_TASK_SESSION_ID = "task_session_id"
+        internal const val EXTRA_START_NEW_CHAT = "start_new_chat"
         const val ENTRY_BOOKSHELF = "bookshelf"
         const val ENTRY_BOOK_DETAIL = "book_detail"
         const val ENTRY_BOOK_SCAN = "book_scan"
+        const val ENTRY_BOOK_SEARCH = "book_search"
         const val ENTRY_TEXT_SELECTION = "text_selection"
     }
 
@@ -313,7 +417,8 @@ class AiChatActivity : AppCompatActivity() {
         setContent {
             NgAppTheme {
                 AiChatRoute(
-                    onBack = { finish() }
+                    onBack = { finish() },
+                    onOpenWebSettings = { AiAssistantWebSettingsDialog.show(supportFragmentManager) },
                 )
             }
         }
@@ -326,6 +431,8 @@ private const val MODE_ENTRY_START_PROMPT =
         "不要复述本条内部触发消息，不要输出中间过程播报。"
 
 private const val AI_CHAT_DRAWER_WIDTH_RATIO = 0.65f
+private val AiChatComposerBottomPadding = 4.dp
+private val AiChatComposerCornerRadius = 20.dp
 
 private val MODE_ENTRY_CONTEXT_TOKEN =
     Regex("""\{\{context\.(title|payload\.[A-Za-z0-9_]+)\}\}""")
@@ -350,11 +457,6 @@ internal fun renderModeEntryConfirmationTemplate(
         }
     }.trim()
 }
-
-internal fun shouldPersistActiveSession(
-    hasVisibleMessages: Boolean,
-    modeEntryStarted: Boolean
-): Boolean = hasVisibleMessages || modeEntryStarted
 
 internal fun buildModeEntryConfirmation(
     mode: AgentModeDefinition,
@@ -411,12 +513,12 @@ internal fun buildModeEntryConfirmation(
 
 private const val MODE_ENTRY_ACTION_PROMPT_TEMPLATE = "[MODE_ENTRY_ACTION] action={{value}}"
 
-private enum class AiChatInputAttachmentType {
+internal enum class AiChatInputAttachmentType {
     CONTEXT,
     SKILL
 }
 
-private data class AiChatInputAttachment(
+internal data class AiChatInputAttachment(
     val id: String,
     val type: AiChatInputAttachmentType,
     val title: String,
@@ -486,12 +588,12 @@ private fun ChatBackgroundImage(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AiChatRoute(onBack: () -> Unit) {
+private fun AiChatRoute(onBack: () -> Unit, onOpenWebSettings: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val modelSheetLaunchGate = remember { AiModelSheetLaunchGate() }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val chatClient = remember { AiChatClient() }
+    val chatClient = aiChatSessions.client
     val entrySource = remember {
         (context as? AiChatActivity)?.intent?.getStringExtra(AiChatActivity.EXTRA_ENTRY)
     }
@@ -525,8 +627,11 @@ private fun AiChatRoute(onBack: () -> Unit) {
                 .orEmpty()
         )
     }
+    val taskSessionId = remember {
+        (context as? AiChatActivity)?.intent?.getStringExtra(AiChatActivity.EXTRA_TASK_SESSION_ID)
+    }
     val expandSuggestionsOnEntry = remember {
-        (context as? AiChatActivity)
+        taskSessionId == null && (context as? AiChatActivity)
             ?.intent
             ?.getBooleanExtra(AiChatActivity.EXTRA_EXPAND_SUGGESTIONS, false) == true
     }
@@ -548,92 +653,133 @@ private fun AiChatRoute(onBack: () -> Unit) {
             .orEmpty()
         buildContextInputAttachments((listOfNotNull(entrySource) + contextSources).distinct())
     }
-    val inputAttachments = remember(entrySource) {
-        mutableStateListOf<AiChatInputAttachment>().apply {
-            addAll(entryAttachments)
-        }
+    val sessionEntry = remember {
+        if (taskSessionId != null || initialModeEntryContext?.contextId == CHARACTER_CARD_ENTRY_CONTEXT) null
+        else chatSessionEntry(
+            entrySource,
+            initialAgentMode,
+            initialModeEntryContext,
+            initialInput,
+            preloadSkillIds,
+            preloadContextAttachments,
+        )
     }
+    var resumeSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    val restoreEntry = remember {
+        val startNew = (context as? AiChatActivity)?.intent
+            ?.getBooleanExtra(AiChatActivity.EXTRA_START_NEW_CHAT, false) == true
+        sessionEntry.takeIf { resumeSessionId == null && taskSessionId == null && !startNew }
+    }
+    val targetSessionId = remember { resumeSessionId ?: taskSessionId ?: restoreEntry?.let(aiChatSessions::selectedFor) }
+    val liveSession = remember { aiChatSessions.get(targetSessionId) }
+    val initialSession = remember {
+        liveSession ?: AiChatSessionRuntime(aiChatSessions, initialAgentMode, initialModeEntryContext, entryAttachments, initialInput)
+    }
+    val selectedSession = remember { mutableStateOf(initialSession) }
+    val chatSession = selectedSession.value
+    val sessionToRestore = targetSessionId?.takeIf { it != initialSession.id }
+    var sessionRestored by remember { mutableStateOf(sessionToRestore == null) }
+    val activeSessionId = chatSession.id
+    val activeAgentMode = chatSession.mode
+    var activeModeEntryContext by chatSession.entryContextState
+    var modeEntryStarted by chatSession.modeStartedState
+    var input by chatSession.inputState
+    var bookSearchDraftEdited by chatSession.draftEditedState
+    var bookSearchGreetingPending by chatSession.greetingPendingState
+    val bookSearchHistoryRestored = sessionRestored
+    var contextStatusText by chatSession.contextStatusState
+    val messages = chatSession.messages
+    val uploadMessages = chatSession.uploadMessages
+    val inputAttachments = chatSession.inputAttachments
+    val skillManagedCapabilityIds = chatSession.skillManagedCapabilityIds
+    val manualMcpCapabilityIds = chatSession.manualMcpCapabilityIds
+    val enabledMcpCapabilityIds = chatSession.enabledMcpCapabilityIds
+    val contextUsage = chatSession.contextUsage
+    val sending = chatSession.sending
+    val manualContextCompacting = chatSession.manualContextCompacting
+    val activeLoadingMessageId = chatSession.activeLoadingMessageId
+    val activeLoadingStartedAt = chatSession.activeLoadingStartedAt
+    val activeWebAccess = chatSession.activeWebAccess
+    val sessions = aiChatSessions.history
+    val loadedSessionDetailIds = aiChatSessions.loadedDetailIds
     val inputAttachmentUsageKey = inputAttachments.joinToString(separator = "|") { attachment ->
         "${attachment.id}:${attachment.prompt.hashCode()}"
     }
-    val uploadMessages = remember {
-        mutableStateListOf<JsonObject>().apply {
-            add(chatClient.newSystemMessage())
-        }
-    }
-    var contextUsage by remember {
-        mutableStateOf(AiChatContextManager.usage(uploadMessages))
-    }
-    var contextStatusText by remember { mutableStateOf<String?>(null) }
-    var contextCompactionCount by remember { mutableIntStateOf(0) }
-    var showContextUsageDialog by remember { mutableStateOf(false) }
-    var contextUsageRevision by remember { mutableIntStateOf(0) }
-    var manualContextCompacting by remember { mutableStateOf(false) }
-    val messages = remember { mutableStateListOf<ChatUiMessage>() }
-    val sessions = remember { mutableStateListOf<AiChatSessionSnapshot>() }
     val listState = rememberLazyListState()
-    var activeSessionId by remember {
-        mutableStateOf<String?>(UUID.randomUUID().toString())
-    }
-    var activeAgentMode by remember { mutableStateOf<AgentModeDefinition>(initialAgentMode) }
-    var activeModeEntryContext by remember {
-        mutableStateOf<AgentModeEntryContext?>(initialModeEntryContext)
-    }
-    var modeEntryStarted by remember { mutableStateOf(false) }
-    var modeEntryMemoryState by remember {
+    var showContextUsageDialog by remember { mutableStateOf(false) }
+    var modeEntryMemoryState by remember(chatSession.id) {
         mutableStateOf(
-            if (initialAgentMode.entryPolicy.memoryProbe == null) {
+            if (activeAgentMode.entryPolicy.memoryProbe == null) {
                 AgentModeEntryMemoryState.NOT_REQUIRED
             } else {
                 AgentModeEntryMemoryState.LOADING
             }
         )
     }
-    var input by remember { mutableStateOf(initialInput) }
-    var sending by remember { mutableStateOf(false) }
-    var sendingJob by remember { mutableStateOf<Job?>(null) }
-    var activeLoadingMessageId by remember { mutableStateOf<String?>(null) }
-    var activeLoadingStartedAt by remember { mutableStateOf<Long?>(null) }
-    var activeStreamContentTarget by remember { mutableStateOf("") }
-    var activeStreamReasoningTarget by remember { mutableStateOf("") }
-    var activeStreamToolTraceTarget by remember { mutableStateOf<List<String>>(emptyList()) }
-    var activeStreamMemoryTraceTarget by remember { mutableStateOf<List<AiMemoryTraceItem>>(emptyList()) }
+    var bookOpenJob by remember { mutableStateOf<Job?>(null) }
+    var bookScopeSelection by remember(activeSessionId) { mutableStateOf<Pair<String, AiBookSearchCandidate>?>(null) }
+
+    DisposableEffect(Unit) {
+        aiChatSessions.attachWindow()
+        onDispose { aiChatSessions.detachWindow() }
+    }
+    DisposableEffect(chatSession) {
+        aiChatSessions.bind(chatSession)
+        onDispose { aiChatSessions.unbind(chatSession) }
+    }
+    LaunchedEffect(sessionRestored) {
+        if (sessionRestored && sessionEntry?.dedicated == true &&
+            liveSession == null && selectedSession.value === initialSession) {
+            aiChatSessions.select(sessionEntry, initialSession, createdForEntry = true)
+        }
+    }
+    LaunchedEffect(chatSession, sessionRestored) {
+        if (sessionRestored) {
+            resumeSessionId = chatSession.id
+            aiChatSessions.select(sessionEntry, chatSession)
+            if (chatSession.savedSnapshot != null) aiChatSessions.saveSelection(chatSession.id)
+        }
+    }
     var selectedDrawerIndex by remember { mutableIntStateOf(2) }
     var configVersion by remember { mutableIntStateOf(0) }
+    var generationBlock by remember { mutableStateOf<Pair<String, AiModelGenerationIssue>?>(null) }
     var showModelSheet by remember { mutableStateOf(false) }
     var showReasoningSheet by remember { mutableStateOf(false) }
     var showInternalMcpSheet by remember { mutableStateOf(false) }
-    var previewMode by remember { mutableStateOf(false) }
+    var chatSearch by remember(activeSessionId) { mutableStateOf<AiChatConversationSearchState?>(null) }
+    val searchFocusManager = LocalFocusManager.current
+    val searchKeyboard = LocalSoftwareKeyboardController.current
     var globalSearchMode by remember { mutableStateOf(false) }
     var globalSearchQuery by remember { mutableStateOf("") }
+    var pendingGlobalSearchResult by remember { mutableStateOf<GlobalMessageSearchResult?>(null) }
     var statsMode by remember { mutableStateOf(false) }
+    var imageImporting by remember(activeSessionId) { mutableStateOf(false) }
+    var imagePreview by remember(activeSessionId) { mutableStateOf<Pair<File, Boolean>?>(null) }
+    var showCodexImageSettings by remember(activeSessionId) { mutableStateOf(false) }
+    val imageAttachmentsAvailable = activeAgentMode.id == AgentModeRegistry.GENERAL_ID
+    fun currentModelSelection() = AiModelSelection(AiConfig.assistantProviderId, AiConfig.assistantModelId)
+    val codexChatSelected = remember(configVersion) { currentModelSelection().isCodexChatSelection() }
+    val showImageActions = imageAttachmentsAvailable && codexChatSelected
+    val imageAttachmentMenu = remember(activeSessionId, showImageActions) { NgPopupToggleState() }
+    val directImageDraft = showImageActions && chatSession.directImageDraft
+    LaunchedEffect(chatSession, sessionRestored, showImageActions) {
+        if (sessionRestored && !showImageActions && chatSession.directImageDraft) {
+            chatSession.setExplicitImageDraft(false)
+            chatSession.saveImageDraft()
+        }
+    }
     var exportSelectionMode by remember { mutableStateOf(false) }
     var exportFormatDialog by remember { mutableStateOf(false) }
     var showContextAttachmentSheet by remember { mutableStateOf(false) }
     var showSkillAttachmentSheet by remember { mutableStateOf(false) }
-    var showMcpCapabilitySheet by remember { mutableStateOf(false) }
-    val initialSkillManagedCapabilityIds = remember(entryAttachments) {
-        resolveModeManagedCapabilities(initialAgentMode, entryAttachments)
-    }
-    val skillManagedCapabilityIds = remember {
-        mutableStateListOf<String>().apply {
-            addAll(initialSkillManagedCapabilityIds)
-        }
-    }
-    val manualMcpCapabilityIds = remember { mutableStateListOf<String>() }
-    val enabledMcpCapabilityIds = remember {
-        mutableStateListOf<String>().apply {
-            addAll(initialSkillManagedCapabilityIds)
-        }
-    }
     var contextPreviewAttachments by remember { mutableStateOf<List<AiChatInputAttachment>>(emptyList()) }
     var pendingSkillCapabilityAuthorization by remember {
         mutableStateOf<AiChatInputAttachment?>(null)
     }
     var historyLoaded by remember { mutableStateOf(false) }
-    val loadedSessionDetailIds = remember { mutableStateListOf<String>() }
     var historyDetailsLoaded by remember { mutableStateOf(false) }
     var historyDetailsLoading by remember { mutableStateOf(false) }
+    var pendingHistoryReadyAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var openingSessionId by remember { mutableStateOf<String?>(null) }
     var historyManageMode by remember { mutableStateOf(false) }
     var pendingDeleteHistoryIds by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -645,12 +791,22 @@ private fun AiChatRoute(onBack: () -> Unit) {
     val selectedModelIconRes = remember(configVersion) {
         AiAssistantConfigUi.selectedModelIconRes()
     }
+    val messageModelProviders = remember(configVersion) {
+        AiProviderStore.providers().associateBy { it.id }
+    }
     val selectedReasoningEnabled = remember(configVersion) {
         AiAssistantConfigUi.selectedReasoningEnabled()
     }
+    val searchSettings by AiExternalSearchStore.changes.collectAsState()
+    val bookSearchMode = activeAgentMode.id == AgentModeRegistry.BOOK_SEARCH_ID
+    val webAccess = if (activeAgentMode.id == AgentModeRegistry.GENERAL_ID || bookSearchMode) {
+        remember(configVersion, searchSettings, activeWebAccess, bookSearchMode) {
+            val selection = AiAssistantConfigUi.selectedModel()
+            searchSettings.webAccess(selection?.provider, selection?.model, activeWebAccess, bookSearchMode)
+        }
+    } else null
     val selectedModelSupportsToolCalls = remember(configVersion) {
         AiAssistantConfigUi.selectedModel()?.model
-            ?.let(AiModelRegistry::enrich)
             ?.abilities
             ?.contains(AiModelAbility.TOOL) == true
     }
@@ -660,6 +816,17 @@ private fun AiChatRoute(onBack: () -> Unit) {
     val activeSkillAttachments = inputAttachments.filter {
         it.type == AiChatInputAttachmentType.SKILL
     }
+    val hasBookSearchSkill = activeSkillAttachments.any { it.id == "skill.${AiSkillRegistry.SKILL_BOOK_SEARCH}" }
+    fun bookSearchAvailability(): AiBookSearchAvailability {
+        if (activeAgentMode.id != AgentModeRegistry.BOOK_SEARCH_ID) return AiBookSearchAvailability.READY
+        val selection = AiAssistantConfigUi.selectedModel()
+        val provider = selection?.provider ?: AiConfig.assistantProviderId.takeIf { it.isNotBlank() }
+            ?.let(AiProviderStore::provider)
+        return AiExternalSearchStore.current().bookSearchAvailability(hasBookSearchSkill, provider, selection?.model)
+    }
+    val bookSearchAvailability = remember(bookSearchMode, configVersion, searchSettings, hasBookSearchSkill) {
+        bookSearchAvailability()
+    }
     val fixedEntrySkillIds = entryAttachments
         .filter { it.type == AiChatInputAttachmentType.SKILL }
         .mapTo(mutableSetOf(), AiChatInputAttachment::id)
@@ -668,7 +835,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
         hasActiveSkill = activeSkillAttachments.isNotEmpty(),
         allowsUserSkills = activeAgentMode.allowsUserSkills,
         fixedEntrySkill = hasFixedEntrySkill,
-        modelSupportsToolCalls = selectedModelSupportsToolCalls
+        modelSupportsToolCalls = selectedModelSupportsToolCalls || bookSearchMode
     )
     val skillToolErrorText = if (skillInputPolicy.toolError) {
         "当前模型不支持工具调用，请切换模型"
@@ -695,106 +862,41 @@ private fun AiChatRoute(onBack: () -> Unit) {
         AiChatInteractionPolicyRegistry.resolve(activeAgentMode)
     }
 
-    fun updateMessage(id: String, transform: (ChatUiMessage) -> ChatUiMessage) {
-        val index = messages.indexOfFirst { it.id == id }
-        if (index >= 0) {
-            messages[index] = transform(messages[index])
+    fun ensureSelectedModelInCatalog(): Boolean {
+        val missing = AiAssistantConfigUi.missingSelectedModelLabel() ?: return true
+        if (modelSheetLaunchGate.tryOpen(SystemClock.elapsedRealtime())) {
+            Toast.makeText(context, missing, Toast.LENGTH_LONG).show()
+            showModelSheet = true
         }
-    }
-
-    fun updateDeliveryState(ids: Collection<String>, state: ChatDeliveryState) {
-        ids.forEach { id ->
-            updateMessage(id) { message -> message.copy(deliveryState = state) }
-        }
+        return false
     }
 
     fun ensureSkillToolSupport(): Boolean {
         val message = skillToolErrorText ?: return true
+        if (!ensureSelectedModelInCatalog()) return false
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         return false
     }
 
-    fun syncActiveSkillContext() {
-        val skill = inputAttachments.lastOrNull {
-            it.type == AiChatInputAttachmentType.SKILL
-        }
-        AiChatContextManager.syncActiveSkill(
-            messages = uploadMessages,
-            snapshot = skill?.let { attachment ->
-                AiActiveSkillSnapshot(
-                    skillId = attachment.id.removePrefix("skill."),
-                    title = attachment.title,
-                    prompt = attachment.prompt,
-                    revision = attachment.skillRevision,
-                    runtimeRevision = attachment.skillRuntimeRevision,
-                    contentHash = attachment.skillContentHash,
-                    runtime = attachment.skillRuntime,
-                    description = attachment.subtitle,
-                    availableSkills = attachment.availableSkills
-                )
-            }
-        )
-    }
-
-    fun syncModeEntryContext() {
-        AiChatContextManager.syncModeEntryContext(
-            messages = uploadMessages,
-            context = activeModeEntryContext
-        )
-    }
-
-    fun refreshContextUsage() {
-        syncModeEntryContext()
-        syncActiveSkillContext()
-        val revision = ++contextUsageRevision
-        val pendingContexts = inputAttachments.filter {
-            it.type == AiChatInputAttachmentType.CONTEXT
-        }
-        val snapshot = buildList {
-            addAll(uploadMessages.map { it.deepCopy().asJsonObject })
-            if (pendingContexts.isNotEmpty()) {
-                add(chatClient.newUserMessage(buildUserUploadContent("", pendingContexts)))
-            }
-        }
-        val promptUsageAnchor = messages.latestPromptUsageAnchor()
-        val mcpCapabilityIds = enabledMcpCapabilityIds.toList()
-        val activeSkill = inputAttachments.lastOrNull {
-            it.type == AiChatInputAttachmentType.SKILL
-        }
-        contextUsage = AiChatContextManager.usage(snapshot)
-        scope.launch {
-            val measured = withContext(Dispatchers.IO) {
-                runCatching {
-                    chatClient.estimateContextUsage(
-                        snapshot,
-                        promptUsageAnchor,
-                        skillId = activeSkill?.id?.removePrefix("skill.").orEmpty(),
-                        skillContentHash = activeSkill?.skillContentHash.orEmpty(),
-                        availableSkillIds = activeSkill?.availableSkillIds.orEmpty(),
-                        enabledMcpCapabilityIds = mcpCapabilityIds
-                    )
-                }
-                    .getOrElse { AiChatContextManager.usage(snapshot) }
-            }
-            if (revision == contextUsageRevision) {
-                contextUsage = measured
-            }
-        }
+    fun ensureModelGenerationRoute(): Boolean {
+        val selection = AiAssistantConfigUi.selectedModel() ?: return ensureSelectedModelInCatalog()
+        val issue = selection.provider.resolveModelGenerationRoute(selection.model).issue ?: return true
+        generationBlock = selection.provider.id to issue
+        return false
     }
 
     LaunchedEffect(Unit) {
-        val history = withContext(Dispatchers.IO) {
-            AiChatHistoryStore.loadIndex()
-        }
-        val currentSessionIds = sessions.mapTo(mutableSetOf()) { it.id }
-        sessions += history.sessions.filterNot { it.id in currentSessionIds }
-        sessions.sortChatSessions()
+        val history = aiChatSessions.readHistory(AiChatHistoryStore::loadIndex)
+        aiChatSessions.mergeIndex(history.sessions)
         historyLoaded = true
-        refreshContextUsage()
+        chatSession.refreshContextUsage()
         selectedDrawerIndex = 2
     }
-    LaunchedEffect(configVersion) {
-        refreshContextUsage()
+    LaunchedEffect(chatSession, chatSession.providerStateRevision) {
+        if (chatSession.providerStateRevision > 0) configVersion++
+    }
+    LaunchedEffect(chatSession, configVersion) {
+        if (!chatSession.sending) chatSession.refreshContextUsage()
     }
     LaunchedEffect(
         activeSessionId,
@@ -884,19 +986,20 @@ private fun AiChatRoute(onBack: () -> Unit) {
             }
         }
         if (historyLoaded) {
-            refreshContextUsage()
+            chatSession.refreshContextUsage()
         }
     }
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
+    val pendingSearchJump = pendingGlobalSearchResult
+    LaunchedEffect(activeSessionId, messages.size) {
+        if (chatSearch == null && pendingSearchJump == null && messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.lastIndex)
         }
     }
-    LaunchedEffect(activeLoadingMessageId, activeLoadingStartedAt, sending) {
+    LaunchedEffect(chatSession, activeLoadingMessageId, activeLoadingStartedAt, sending) {
         val loadingId = activeLoadingMessageId ?: return@LaunchedEffect
         val startedAt = activeLoadingStartedAt ?: return@LaunchedEffect
-        while (sending && activeLoadingMessageId == loadingId) {
-            updateMessage(loadingId) { message ->
+        while (chatSession.sending && chatSession.activeLoadingMessageId == loadingId) {
+            chatSession.updateMessage(loadingId) { message ->
                 if (message.loading) {
                     message.copy(elapsedMs = System.currentTimeMillis() - startedAt)
                 } else {
@@ -906,10 +1009,10 @@ private fun AiChatRoute(onBack: () -> Unit) {
             delay(250)
         }
     }
-    LaunchedEffect(activeLoadingMessageId, sending) {
+    LaunchedEffect(chatSession, activeLoadingMessageId, sending) {
         val loadingId = activeLoadingMessageId ?: return@LaunchedEffect
-        while (sending && activeLoadingMessageId == loadingId) {
-            updateMessage(loadingId) { message ->
+        while (chatSession.sending && chatSession.activeLoadingMessageId == loadingId) {
+            chatSession.updateMessage(loadingId) { message ->
                 if (!message.loading) {
                     message
                 } else {
@@ -918,21 +1021,23 @@ private fun AiChatRoute(onBack: () -> Unit) {
                         .orEmpty()
                     val nextContent = nextStreamingText(
                         current = visibleContent,
-                        target = activeStreamContentTarget
+                        target = chatSession.activeStreamContentTarget
                     )
                     val nextReasoning = nextStreamingText(
                         current = message.reasoning.orEmpty(),
-                        target = activeStreamReasoningTarget
+                        target = chatSession.activeStreamReasoningTarget
                     )
                     message.copy(
                         content = nextContent.ifBlank { "正在思考..." },
+                        imageWait = chatSession.imageWait,
                         reasoning = nextReasoning.takeIf { it.isNotBlank() },
-                        toolTrace = activeStreamToolTraceTarget
+                        toolTrace = chatSession.activeStreamToolTraceTarget
                             .takeIf { it.isNotEmpty() }
                             ?: message.toolTrace,
-                        memoryTrace = activeStreamMemoryTraceTarget
+                        memoryTrace = chatSession.activeStreamMemoryTraceTarget
                             .takeIf { it.isNotEmpty() }
-                            ?: message.memoryTrace
+                            ?: message.memoryTrace,
+                        webActivity = chatSession.activeWebActivity,
                     )
                 }
             }
@@ -960,9 +1065,6 @@ private fun AiChatRoute(onBack: () -> Unit) {
         statsMode = false
         selectedDrawerIndex = 2
     }
-    BackHandler(enabled = previewMode) {
-        previewMode = false
-    }
     BackHandler(enabled = exportSelectionMode) {
         exportSelectionMode = false
         exportFormatDialog = false
@@ -972,70 +1074,116 @@ private fun AiChatRoute(onBack: () -> Unit) {
         historyManageMode = false
         selectedHistoryIds.clear()
     }
+    fun showChatSearchResults(edit: Boolean) {
+        chatSearch?.let { search ->
+            search.focusResults = edit
+            search.location = null
+        }
+    }
+
+    fun exitChatSearch() {
+        val search = chatSearch ?: return
+        searchFocusManager.clearFocus()
+        searchKeyboard?.hide()
+        if (search.location == null && !search.hasLocatedMessage) {
+            listState.requestScrollToItem(search.entryIndex, search.entryOffset)
+        }
+        chatSearch = null
+    }
+
+    fun backFromChatSearch() {
+        if (chatSearch?.location != null) {
+            showChatSearchResults(edit = false)
+        } else {
+            exitChatSearch()
+        }
+    }
+
+    BackHandler(enabled = chatSearch != null && drawerState.isClosed) {
+        backFromChatSearch()
+    }
 
     fun placeholder(label: String) {
         Toast.makeText(context, "$label 后续接入", Toast.LENGTH_SHORT).show()
     }
 
-    fun openAssistantSettings() {
-        context.startActivity(Intent(context, ConfigActivity::class.java).apply {
+    val assistantSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        configVersion++
+        chatSession.refreshContextUsage()
+    }
+
+    fun openAssistantSettings(page: String = AiConfigFragment.PAGE_ASSISTANT) {
+        assistantSettingsLauncher.launch(Intent(context, ConfigActivity::class.java).apply {
             putExtra("configTag", ConfigTag.AI_CONFIG)
-            putExtra(AiConfigFragment.EXTRA_INITIAL_PAGE, AiConfigFragment.PAGE_ASSISTANT)
+            putExtra(AiConfigFragment.EXTRA_INITIAL_PAGE, page)
         })
     }
 
-    fun saveHistory(activeId: String? = activeSessionId) {
-        scope.launch(Dispatchers.IO) {
-            AiChatHistoryStore.setActiveSessionId(activeId)
-        }
+    fun saveHistory(activeId: String = activeSessionId) {
+        aiChatSessions.saveSelection(activeId)
     }
 
-    fun saveSessionSnapshot(
-        snapshot: AiChatSessionSnapshot,
-        makeActive: Boolean = false
-    ) {
-        scope.launch(Dispatchers.IO) {
-            AiChatHistoryStore.saveSessionSnapshot(snapshot)
-            if (makeActive) {
-                AiChatHistoryStore.setActiveSessionId(snapshot.id)
+    fun persistActiveSession() {
+        chatSession.persist()
+        if (sessions.none { it.id == activeSessionId }) selectedHistoryIds.remove(activeSessionId)
+    }
+
+    fun handleBookSearchAction(messageId: String, action: AiBookSearchAction) {
+        when (action) {
+            is AiBookSearchAction.Lookup -> chatSession.launchBookSourceLookup(messageId, action.candidate, action.keyword)
+            is AiBookSearchAction.Scope -> bookScopeSelection = messageId to action.candidate
+            AiBookSearchAction.EnableMcp -> showInternalMcpSheet = true
+            is AiBookSearchAction.Reject -> {
+                if (messageId == chatSession.activeBookLookupMessageId) chatSession.cancelBookSourceLookup()
+                chatSession.updateMessage(messageId) { message ->
+                    val reply = message.bookSearch ?: return@updateMessage message
+                    message.copy(bookSearch = reply.copy(
+                        rejectedKeys = (reply.rejectedKeys + action.keys).distinct(),
+                        lookup = reply.lookup?.takeUnless { it.candidateKey in action.keys },
+                    ))
+                }
+                persistActiveSession()
+            }
+            is AiBookSearchAction.Open -> {
+                if (bookOpenJob?.isActive == true) return
+                val hit = action.hit
+                val reply = messages.firstOrNull { it.id == messageId }?.bookSearch ?: return
+                val lookup = reply.lookup?.takeIf { hit in it.hits } ?: return
+                val media = reply.candidates.firstOrNull { it.key == lookup.candidateKey }?.media ?: return
+                bookOpenJob = scope.launch {
+                    val book = try {
+                        withContext(Dispatchers.IO) { McpPreciseBookSearch.resolveHit(hit, lookup.keyword, media) }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (selectedSession.value !== chatSession || messages.none {
+                            it.id == messageId && hit in it.bookSearch?.lookup?.hits.orEmpty()
+                        }) return@launch
+                    if (book != null) {
+                        context.startActivity(Intent(context, BookInfoActivity::class.java)
+                            .putExtra(EXTRA_BOOK_INFO_SEARCH_RESULT, book))
+                    } else {
+                        chatSession.updateMessage(messageId) { message ->
+                            val state = message.bookSearch ?: return@updateMessage message
+                            val result = state.lookup?.takeUnless { it.status == AiBookSourceStatus.RUNNING }
+                                ?: return@updateMessage message
+                            message.copy(bookSearch = state.copy(lookup = result.copy(status = AiBookSourceStatus.OPEN_FAILED)))
+                        }
+                        persistActiveSession()
+                        Toast.makeText(context, R.string.ai_book_search_open_failed, Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
     }
 
-    fun persistActiveSession() {
-        val visibleMessages = messages.filterNot { it.loading }
-        if (!shouldPersistActiveSession(visibleMessages.isNotEmpty(), modeEntryStarted)) {
-            return
+    LaunchedEffect(activeSessionId, input, bookSearchMode, bookSearchHistoryRestored, bookSearchDraftEdited) {
+        if (bookSearchMode && bookSearchHistoryRestored && (bookSearchDraftEdited || messages.isNotEmpty())) {
+            delay(350)
+            persistActiveSession()
         }
-        val now = System.currentTimeMillis()
-        val sessionId = activeSessionId ?: UUID.randomUUID().toString().also { activeSessionId = it }
-        val oldSession = sessions.firstOrNull { it.id == sessionId }
-        val snapshot = AiChatSessionSnapshot(
-            id = sessionId,
-            title = resolveConversationTitle(
-                modeEntryTitle = activeModeEntryContext?.title,
-                derivedTitle = visibleMessages.deriveChatTitle(),
-                previousTitle = oldSession?.title
-            ),
-            modeId = activeAgentMode.id,
-            modeRevision = activeAgentMode.revision,
-            modeEntryContext = activeModeEntryContext,
-            modeEntryStarted = modeEntryStarted,
-            createdAt = oldSession?.createdAt ?: now,
-            updatedAt = now,
-            isPinned = oldSession?.isPinned ?: false,
-            messages = visibleMessages.map { it.toSnapshot() },
-            loadedSkillIds = inputAttachments.loadedSkillIds(),
-            enabledMcpCapabilityIds = enabledMcpCapabilityIds.toList(),
-            uploadMessages = uploadMessages.map { it.deepCopy().asJsonObject }
-        )
-        sessions.removeAll { it.id == sessionId }
-        sessions.add(0, snapshot)
-        sessions.sortChatSessions()
-        if (sessionId !in loadedSessionDetailIds) {
-            loadedSessionDetailIds += sessionId
-        }
-        saveSessionSnapshot(snapshot, makeActive = true)
     }
 
     fun updateMcpCapabilitySelection(capabilityIds: Collection<String>) {
@@ -1049,7 +1197,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
                 manualMcpCapabilityIds + skillManagedCapabilityIds
             )
         )
-        refreshContextUsage()
+        chatSession.refreshContextUsage()
         persistActiveSession()
     }
 
@@ -1067,7 +1215,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
                 manualMcpCapabilityIds + skillManagedCapabilityIds
             )
         )
-        refreshContextUsage()
+        chatSession.refreshContextUsage()
         persistActiveSession()
     }
 
@@ -1082,85 +1230,73 @@ private fun AiChatRoute(onBack: () -> Unit) {
         activateSkillAttachment(attachment)
     }
 
-    fun startNewChat() {
-        persistActiveSession()
-        activeSessionId = UUID.randomUUID().toString()
-        activeAgentMode = initialAgentMode
-        activeModeEntryContext = initialModeEntryContext
-        modeEntryStarted = false
-        uploadMessages.clear()
-        uploadMessages += chatClient.newSystemMessage()
-        contextCompactionCount = 0
-        contextStatusText = null
-        messages.clear()
-        inputAttachments.replaceWith(entryAttachments)
-        skillManagedCapabilityIds.replaceWith(initialSkillManagedCapabilityIds)
-        manualMcpCapabilityIds.clear()
-        enabledMcpCapabilityIds.replaceWith(initialSkillManagedCapabilityIds)
-        refreshContextUsage()
+    fun selectRuntime(next: AiChatSessionRuntime, createdForEntry: Boolean = false) {
+        if (next.deleted) return
+        bookOpenJob?.cancel()
+        bookScopeSelection = null
+        openingSessionId = null
+        selectedSession.value = next
+        resumeSessionId = next.id
+        aiChatSessions.select(sessionEntry, next, createdForEntry)
         selectedDrawerIndex = 2
-        saveHistory(activeSessionId)
+        sessionRestored = true
     }
 
-    fun applyLoadedSession(session: AiChatSessionSnapshot) {
-        val restoredModeIdentity = session.normalizedAgentModeIdentity()
-        val restoredMode = AgentModeRegistry.resolve(restoredModeIdentity)
-        if (restoredMode == null) {
-            Toast.makeText(
-                context,
-                "当前版本不支持 Agent Mode：${restoredModeIdentity.id}@${restoredModeIdentity.revision}",
-                Toast.LENGTH_SHORT
-            ).show()
+    fun startNewChat() {
+        persistActiveSession()
+        selectRuntime(
+            AiChatSessionRuntime(aiChatSessions, initialAgentMode, initialModeEntryContext, entryAttachments),
+            createdForEntry = true,
+        )
+    }
+
+    fun applyLoadedSession(snapshot: AiChatSessionSnapshot) {
+        if (aiChatSessions.wasDeleted(snapshot.id)) return
+        aiChatSessions.get(snapshot.id)?.let {
+            selectRuntime(it)
             return
         }
-        activeSessionId = session.id
-        activeAgentMode = restoredMode
-        activeModeEntryContext = session.modeEntryContext
-        modeEntryStarted = session.modeEntryStarted
-        messages.replaceWith(session.messages.map { it.toUiMessage() })
-        uploadMessages.replaceUploadMessages(session, chatClient)
-        inputAttachments.replaceWith(
-            buildModeSkillInputAttachments(
-                mode = restoredMode,
-                requestedSkillIds = session.loadedSkillIds,
-                pinnedMessages = uploadMessages
-            )
-        )
-        val restoredSkillCapabilities = resolveModeManagedCapabilities(
-            restoredMode,
-            inputAttachments
-        )
-        skillManagedCapabilityIds.replaceWith(restoredSkillCapabilities)
-        manualMcpCapabilityIds.replaceWith(
-            if (restoredMode.allowsManualMcpCapabilities) {
-                McpInternalToolCatalog.normalizeCapabilityIds(session.enabledMcpCapabilityIds)
-                    .filterNot { capabilityId -> capabilityId in restoredSkillCapabilities }
-            } else {
-                emptyList()
-            }
-        )
-        enabledMcpCapabilityIds.replaceWith(
-            McpInternalToolCatalog.normalizeCapabilityIds(
-                manualMcpCapabilityIds + skillManagedCapabilityIds
-            )
-        )
-        refreshContextUsage()
-        contextCompactionCount = AiChatContextManager.compactionRevision(uploadMessages)
-        contextStatusText = if (messages.any {
-                it.role == ChatRole.USER && it.deliveryState == ChatDeliveryState.RECOVERABLE
-            }) {
-            "上次请求未完成，发送新消息或点击重新生成可恢复"
-        } else {
-            null
+        val identity = snapshot.normalizedAgentModeIdentity()
+        val mode = AgentModeRegistry.resolve(identity)
+        if (mode == null) {
+            Toast.makeText(context, "当前版本不支持 Agent Mode：${identity.id}@${identity.revision}", Toast.LENGTH_SHORT).show()
+            return
         }
-        selectedDrawerIndex = 2
-        saveHistory(session.id)
+        selectRuntime(
+            AiChatSessionRuntime(
+                owner = aiChatSessions,
+                mode = mode,
+                initialContext = snapshot.modeEntryContext,
+                initialAttachments = buildModeSkillInputAttachments(mode, snapshot.loadedSkillIds, snapshot.uploadMessages),
+                initialInput = snapshot.modeEntryContext.bookSearchDraft().orEmpty(),
+                id = snapshot.id,
+                saved = snapshot,
+            )
+        )
+    }
+
+    LaunchedEffect(historyLoaded) {
+        if (!historyLoaded || sessionRestored) return@LaunchedEffect
+        val target = sessionToRestore ?: return@LaunchedEffect
+        val original = selectedSession.value
+        val readResult = runCatching { aiChatSessions.readHistory { AiChatHistoryStore.loadSession(target) } }
+        val saved = readResult.getOrNull()?.takeIf { snapshot ->
+            restoreEntry?.matches(snapshot.normalizedAgentModeIdentity(), snapshot.modeEntryContext) != false
+        }
+        if (target == taskSessionId && saved == null && readResult.isSuccess) aiChatSessions.forgetTask(target)
+        if (selectedSession.value === original && !original.hasWork && original.messages.isEmpty() && saved != null) {
+            applyLoadedSession(saved)
+        }
+        sessionRestored = true
     }
 
     fun openSession(session: AiChatSessionSnapshot) {
-        if (session.id == activeSessionId) return
-        val cached = sessions.firstOrNull { it.id == session.id }
-            ?.takeIf { it.id in loadedSessionDetailIds }
+        if (session.id == activeSessionId || aiChatSessions.wasDeleted(session.id)) return
+        aiChatSessions.get(session.id)?.let { running ->
+            selectRuntime(running)
+            return
+        }
+        val cached = sessions.firstOrNull { it.id == session.id && it.id in loadedSessionDetailIds }
         if (cached != null) {
             applyLoadedSession(cached)
             return
@@ -1168,491 +1304,243 @@ private fun AiChatRoute(onBack: () -> Unit) {
         openingSessionId = session.id
         contextStatusText = "正在加载会话…"
         scope.launch {
-            val loadedResult = runCatching {
-                withContext(Dispatchers.IO) {
-                    AiChatHistoryStore.loadSession(session.id)
-                }
+            val loaded = runCatching {
+                aiChatSessions.readHistory { AiChatHistoryStore.loadSession(session.id) }
             }
-            if (openingSessionId != session.id) return@launch
+            if (openingSessionId != session.id || selectedSession.value !== chatSession) return@launch
             openingSessionId = null
-            val loaded = loadedResult.getOrElse {
-                contextStatusText = null
+            if (contextStatusText == "正在加载会话…") contextStatusText = null
+            loaded.onSuccess { snapshot ->
+                if (snapshot != null) applyLoadedSession(snapshot)
+                else Toast.makeText(context, "会话不存在或已被删除", Toast.LENGTH_SHORT).show()
+            }.onFailure {
                 Toast.makeText(context, "会话加载失败，请重试", Toast.LENGTH_SHORT).show()
-                return@launch
             }
-            if (loaded == null) {
-                contextStatusText = null
-                Toast.makeText(context, "会话不存在或已被删除", Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            val index = sessions.indexOfFirst { it.id == loaded.id }
-            if (index >= 0) {
-                sessions[index] = loaded
-            } else {
-                sessions.add(0, loaded)
-            }
-            sessions.sortChatSessions()
-            if (loaded.id !in loadedSessionDetailIds) {
-                loadedSessionDetailIds += loaded.id
-            }
-            applyLoadedSession(loaded)
         }
     }
 
-    fun ensureAllHistoryDetails(onReady: () -> Unit) {
+    fun ensureAllHistoryDetails(onReady: (() -> Unit)? = null) {
         if (historyDetailsLoaded) {
-            onReady()
+            onReady?.invoke()
             return
         }
-        if (historyDetailsLoading) return
+        if (historyDetailsLoading) {
+            if (onReady == null) pendingHistoryReadyAction = null
+            return
+        }
+        pendingHistoryReadyAction = onReady
         historyDetailsLoading = true
-        Toast.makeText(context, "正在加载历史内容…", Toast.LENGTH_SHORT).show()
+        if (onReady != null) {
+            Toast.makeText(context, "正在加载历史内容…", Toast.LENGTH_SHORT).show()
+        }
         scope.launch {
             val details = runCatching {
-                withContext(Dispatchers.IO) {
-                    AiChatHistoryStore.loadAllSessionDetails()
-                }
+                aiChatSessions.readHistory(AiChatHistoryStore::loadAllSessionDetails)
             }.getOrElse {
                 historyDetailsLoading = false
-                Toast.makeText(context, "历史内容加载失败，请重试", Toast.LENGTH_SHORT).show()
+                if (pendingHistoryReadyAction != null) {
+                    Toast.makeText(context, "历史内容加载失败，请重试", Toast.LENGTH_SHORT).show()
+                }
+                pendingHistoryReadyAction = null
                 return@launch
             }
-            details.forEach { detail ->
-                if (detail.id == activeSessionId) return@forEach
-                val index = sessions.indexOfFirst { it.id == detail.id }
-                if (index >= 0) {
-                    sessions[index] = detail
-                } else {
-                    sessions += detail
-                }
-                if (detail.id !in loadedSessionDetailIds) {
-                    loadedSessionDetailIds += detail.id
-                }
-            }
-            sessions.sortChatSessions()
+            aiChatSessions.mergeDetails(details)
             historyDetailsLoaded = true
             historyDetailsLoading = false
-            onReady()
+            val readyAction = pendingHistoryReadyAction
+            pendingHistoryReadyAction = null
+            readyAction?.invoke()
         }
     }
 
-    suspend fun confirmToolCalls(toolCalls: List<AiPendingToolCall>): Boolean {
-        if (toolCalls.isEmpty()) return true
-        return withContext(Dispatchers.Main) {
-            suspendCancellableCoroutine { continuation ->
-                val activity = context as? AiChatActivity
-                if (activity == null || activity.isFinishing) {
-                    continuation.resume(false)
-                    return@suspendCancellableCoroutine
-                }
-                val summaries = toolCalls.map { it.toWriteOperationSummary() }
-                val containsDestructiveOperation = toolCalls.any {
-                    it.sideEffect == McpToolSideEffect.DESTRUCTIVE
-                }
-                var resumed = false
-                fun resumeOnce(value: Boolean) {
-                    if (resumed) return
-                    resumed = true
-                    continuation.resume(value)
-                }
-                val dialog = ComponentDialog(activity)
-                val composeView = ComposeView(activity).apply {
-                    setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
-                    setContent {
-                        NgAppTheme(updateSystemBars = false) {
-                            AiToolWriteConfirmationContent(
-                                summaries = summaries,
-                                destructive = containsDestructiveOperation,
-                                onCancel = {
-                                    dialog.dismiss()
-                                    resumeOnce(false)
-                                },
-                                onConfirm = {
-                                    dialog.dismiss()
-                                    resumeOnce(true)
-                                },
-                            )
-                        }
-                    }
-                }
-                dialog.setContentView(composeView)
-                dialog.setOnCancelListener {
-                    resumeOnce(false)
-                }
-                continuation.invokeOnCancellation {
-                    dialog.dismiss()
-                }
-                dialog.show()
-                dialog.applyNgWindow(height = (activity.resources.displayMetrics.heightPixels * 0.62f).toInt())
-            }
+    val activityState by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    val viewingConversation = sessionRestored && activityState.isAtLeast(Lifecycle.State.RESUMED) &&
+        !statsMode && !globalSearchMode && drawerState.isClosed && chatSearch == null
+    if (viewingConversation) {
+        DisposableEffect(activeSessionId) {
+            aiChatSessions.beginViewing(activeSessionId)
+            onDispose { aiChatSessions.endViewing(activeSessionId) }
         }
+    }
+    val approval = chatSession.pendingApproval.takeIf {
+        activityState.isAtLeast(Lifecycle.State.RESUMED) && !statsMode && !globalSearchMode && drawerState.isClosed
+    }
+    AiChatToolApprovalDialog(context as? AiChatActivity, approval)
+
+    fun ensureCodexImageRoute(selection: AiModelSelection = currentModelSelection()): Boolean {
+        if (!selection.isCodexChatSelection()) {
+            Toast.makeText(context, R.string.ai_image_codex_model_required, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (AiProviderStore.provider(selection.providerId).availableCodexImageProvider() == null) {
+            showCodexImageSettings = true
+            return false
+        }
+        return true
     }
 
     fun sendCurrentMessages(activeUserMessageIds: List<String> = emptyList()) {
-        if (!ensureSkillToolSupport()) {
-            updateDeliveryState(activeUserMessageIds, ChatDeliveryState.RECOVERABLE)
+        val lastUser = uploadMessages.lastOrNull { it.get("role")?.asString == "user" }
+        val direct = imageAttachmentsAvailable && lastUser?.isDirectImageAction() == true
+        val selection = currentModelSelection()
+        val ready = if (direct) {
+            ensureCodexImageRoute(selection)
+        } else {
+            bookSearchAvailability() == AiBookSearchAvailability.READY &&
+                ensureSkillToolSupport() && ensureModelGenerationRoute()
+        }
+        if (!ready) {
+            chatSession.updateDeliveryState(activeUserMessageIds, ChatDeliveryState.RECOVERABLE)
+            persistActiveSession()
             return
         }
-        syncModeEntryContext()
-        syncActiveSkillContext()
-        sending = true
-        val conversationId = activeSessionId
-            ?: UUID.randomUUID().toString().also { activeSessionId = it }
-        val turnId = activeUserMessageIds.firstOrNull()
-            ?: messages.asReversed().firstOrNull { message -> message.role == ChatRole.USER }?.id
-            ?: UUID.randomUUID().toString()
-        val activeSkill = inputAttachments.lastOrNull { attachment ->
-            attachment.type == AiChatInputAttachmentType.SKILL
-        }
-        val promptUsageAnchor = messages.latestPromptUsageAnchor()
-        val loadingId = UUID.randomUUID().toString()
-        val startedAt = System.currentTimeMillis()
-        activeLoadingMessageId = loadingId
-        activeLoadingStartedAt = startedAt
-        activeStreamContentTarget = ""
-        activeStreamReasoningTarget = ""
-        activeStreamToolTraceTarget = emptyList()
-        activeStreamMemoryTraceTarget = emptyList()
-        val uploadMessagesBeforeSend = uploadMessages.map { it.deepCopy().asJsonObject }
-        val mcpCapabilityIds = enabledMcpCapabilityIds.toList()
-        messages += ChatUiMessage(
-            id = loadingId,
-            role = ChatRole.ASSISTANT,
-            content = "正在思考...",
-            elapsedMs = 0L,
-            loading = true
-        )
-        val previousSession = sessions.firstOrNull { session -> session.id == conversationId }
-        val durableBaseSession = AiChatSessionSnapshot(
-            id = conversationId,
-            title = resolveConversationTitle(
-                modeEntryTitle = activeModeEntryContext?.title,
-                derivedTitle = messages.filterNot { it.loading }.deriveChatTitle(),
-                previousTitle = previousSession?.title
-            ),
-            modeId = activeAgentMode.id,
-            modeRevision = activeAgentMode.revision,
-            modeEntryContext = activeModeEntryContext,
-            modeEntryStarted = modeEntryStarted,
-            createdAt = previousSession?.createdAt ?: startedAt,
-            updatedAt = startedAt,
-            isPinned = previousSession?.isPinned == true,
-            messages = messages.filterNot { it.loading }.map(ChatUiMessage::toSnapshot),
-            loadedSkillIds = inputAttachments
-                .filter { it.type == AiChatInputAttachmentType.SKILL }
-                .map { it.id.removePrefix("skill.") },
-            enabledMcpCapabilityIds = mcpCapabilityIds,
-            uploadMessages = uploadMessagesBeforeSend
-        )
-        scope.launch {
-            listState.scrollToItem(messages.lastIndex)
-        }
-        sendingJob?.cancel()
-        sendingJob = scope.launch {
-            var latestDurableUpdate: AiChatDurableContextUpdate? = null
-            val requestMessages = uploadMessagesBeforeSend
-                .map { it.deepCopy().asJsonObject }
-                .toMutableList()
-            val result = runCatching {
-                withContext(Dispatchers.IO) {
-                    AiChatHistoryStore.saveSessionSnapshot(durableBaseSession)
-                    chatClient.send(
-                        messages = requestMessages,
-                        conversationId = conversationId,
-                        turnId = turnId,
-                        skillId = activeSkill?.id?.removePrefix("skill.").orEmpty(),
-                        skillRevision = activeSkill?.skillRuntimeRevision.orEmpty(),
-                        skillContentHash = activeSkill?.skillContentHash.orEmpty(),
-                        availableSkillIds = activeSkill?.availableSkillIds.orEmpty(),
-                        memoryPolicy = activeAgentMode.memoryPolicy,
-                        runtimeHooks = activeAgentMode.runtimeHooks +
-                            if (activeAgentMode.allowsUserSkills) {
-                                activeSkill?.skillRuntime?.runtimeHooks.orEmpty()
-                            } else {
-                                emptyList()
-                            },
-                        promptUsageAnchor = promptUsageAnchor,
-                        onStreamUpdate = { update: AiChatStreamUpdate ->
-                            scope.launch {
-                                if (activeLoadingMessageId == loadingId) {
-                                    activeStreamContentTarget = update.content
-                                    activeStreamReasoningTarget = update.reasoning.orEmpty()
-                                    activeStreamToolTraceTarget = update.toolTrace
-                                    activeStreamMemoryTraceTarget = update.memoryTrace
-                                }
-                            }
-                        },
-                        onDurableContextUpdate = { update ->
-                            latestDurableUpdate = update
-                            AiChatHistoryStore.saveDurableTurn(
-                                baseSession = durableBaseSession,
-                                assistantMessageId = loadingId,
-                                update = update
-                            )
-                        },
-                        onContextEvent = { event: AiChatContextEvent ->
-                            scope.launch {
-                                when (event.type) {
-                                    AiChatContextEventType.STARTED -> {
-                                        event.beforeUsage?.let { contextUsage = it }
-                                        contextStatusText = "正在自动压缩上下文..."
-                                    }
-                                    AiChatContextEventType.COMPLETED -> {
-                                        val after = event.afterTokens ?: event.beforeTokens
-                                        event.afterUsage?.let { contextUsage = it }
-                                        event.compaction?.let {
-                                            contextCompactionCount = it.revision
-                                        }
-                                        contextStatusText =
-                                            "上下文已自动压缩 · ${formatContextTokens(event.beforeTokens)} → ${formatContextTokens(after)}"
-                                    }
-                                }
-                            }
-                        },
-                        enabledMcpCapabilityIds = mcpCapabilityIds,
-                        onToolConfirmationRequired = { pendingCalls ->
-                            confirmToolCalls(pendingCalls)
-                        }
-                    )
-                }
-            }
-            val elapsedMs = System.currentTimeMillis() - startedAt
-            val canceled = result.exceptionOrNull() is CancellationException
-            result.onSuccess {
-                updateDeliveryState(activeUserMessageIds, ChatDeliveryState.SENT)
-                uploadMessages.clear()
-                uploadMessages.addAll(
-                    it.contextMessages.map { message -> message.deepCopy().asJsonObject }
-                )
-                val loadingIndex = messages.indexOfFirst { message -> message.id == loadingId }
-                val completedMessage = it.toUiMessage(elapsedMs)
-                val compactionMessages = it.contextCompactions.map { record ->
-                    ChatUiMessage(
-                        role = ChatRole.ASSISTANT,
-                        content = "上下文已自动压缩",
-                        contextCompaction = record
-                    )
-                }
-                if (loadingIndex >= 0) {
-                    messages.removeAt(loadingIndex)
-                    messages.addAll(loadingIndex, compactionMessages + completedMessage)
-                } else {
-                    messages += compactionMessages
-                    messages += completedMessage
-                }
-                contextUsage = it.contextUsage
-                contextCompactionCount = AiChatContextManager.compactionRevision(uploadMessages)
-            }.onFailure {
-                val durable = latestDurableUpdate
-                uploadMessages.clear()
-                uploadMessages.addAll(
-                    (durable?.contextMessages ?: uploadMessagesBeforeSend).map { message ->
-                        message.deepCopy().asJsonObject
-                    }
-                )
-                val partialContent = durable?.visibleContent
-                    ?.takeIf { content -> content.isNotBlank() }
-                    ?: activeStreamContentTarget.takeIf { content -> content.isNotBlank() }
-                if (partialContent != null) {
-                    updateMessage(loadingId) { loading ->
-                        loading.copy(
-                            content = partialContent,
-                            reasoning = durable?.reasoning ?: activeStreamReasoningTarget.takeIf { reasoning ->
-                                reasoning.isNotBlank()
-                            },
-                            toolTrace = durable?.toolTrace ?: activeStreamToolTraceTarget,
-                            toolReceipts = durable?.toolReceipts.orEmpty(),
-                            loading = false,
-                            meta = if (canceled) "已中断，可恢复" else "执行中断，结果已保留"
-                        )
-                    }
-                } else {
-                    messages.removeAll { message -> message.id == loadingId }
-                }
-                contextStatusText = null
-                updateDeliveryState(
-                    activeUserMessageIds,
-                    if (canceled) ChatDeliveryState.RECOVERABLE else ChatDeliveryState.FAILED
-                )
-                if (it !is CancellationException) {
-                    messages += ChatUiMessage(
-                        role = ChatRole.ASSISTANT,
-                        content = it.localizedMessage ?: it.toString(),
-                        meta = "error"
-                    )
-                }
-            }
-            persistActiveSession()
-            sending = false
-            sendingJob = null
-            activeLoadingMessageId = null
-            activeLoadingStartedAt = null
-            activeStreamContentTarget = ""
-            activeStreamReasoningTarget = ""
-            activeStreamToolTraceTarget = emptyList()
-            activeStreamMemoryTraceTarget = emptyList()
-            refreshContextUsage()
-            if (canceled) {
-                contextStatusText = null
-                return@launch
-            }
-            val queuedMessages = messages.filter {
-                it.role == ChatRole.USER && it.deliveryState == ChatDeliveryState.QUEUED
-            }
-            if (queuedMessages.isNotEmpty()) {
-                val queuedIds = queuedMessages.map { it.id }
-                queuedMessages.forEach { message ->
-                    uploadMessages += chatClient.newUserMessage(
-                        AiChatContextManager.removeEmbeddedSkill(
-                            message.uploadContent?.takeIf { it.isNotBlank() } ?: message.content
-                        )
-                    )
-                }
-                updateDeliveryState(queuedIds, ChatDeliveryState.IN_FLIGHT)
-                refreshContextUsage()
-                persistActiveSession()
-                sendCurrentMessages(queuedIds)
-            }
-        }
+        chatSession.sendCurrentMessages(activeUserMessageIds, selection)
     }
 
     fun stopSending() {
-        if (!sending) return
-        sendingJob?.cancel()
+        bookOpenJob?.cancel()
+        chatSession.stopSending()
+    }
+
+    BackHandler(
+        enabled = bookSearchMode && drawerState.isClosed && !globalSearchMode && !statsMode &&
+            !exportSelectionMode && !historyManageMode && chatSearch == null,
+    ) {
+        bookOpenJob?.cancel()
+        persistActiveSession()
+        onBack()
     }
 
     fun manuallyCompressContext() {
-        if (sending || manualContextCompacting) return
-        syncModeEntryContext()
-        syncActiveSkillContext()
-        manualContextCompacting = true
-        sending = true
-        val promptUsageAnchor = messages.latestPromptUsageAnchor()
-        val snapshot = uploadMessages.map { it.deepCopy().asJsonObject }.toMutableList()
-        val mcpCapabilityIds = enabledMcpCapabilityIds.toList()
-        val conversationId = activeSessionId
-            ?: UUID.randomUUID().toString().also { activeSessionId = it }
-        val activeSkill = inputAttachments.lastOrNull { attachment ->
-            attachment.type == AiChatInputAttachmentType.SKILL
-        }
-        sendingJob = scope.launch {
-            val result = runCatching {
-                withContext(Dispatchers.IO) {
-                    chatClient.compactContext(
-                        messages = snapshot,
-                        conversationId = conversationId,
-                        skillId = activeSkill?.id?.removePrefix("skill.").orEmpty(),
-                        skillRevision = activeSkill?.skillRuntimeRevision.orEmpty(),
-                        skillContentHash = activeSkill?.skillContentHash.orEmpty(),
-                        availableSkillIds = activeSkill?.availableSkillIds.orEmpty(),
-                        runtimeHooks = activeAgentMode.runtimeHooks +
-                            if (activeAgentMode.allowsUserSkills) {
-                                activeSkill?.skillRuntime?.runtimeHooks.orEmpty()
-                            } else {
-                                emptyList()
-                            },
-                        promptUsageAnchor = promptUsageAnchor,
-                        enabledMcpCapabilityIds = mcpCapabilityIds,
-                        onContextEvent = { event ->
-                            scope.launch {
-                                when (event.type) {
-                                    AiChatContextEventType.STARTED -> {
-                                        event.beforeUsage?.let { contextUsage = it }
-                                        contextStatusText = "正在手动压缩上下文..."
-                                    }
+        if (!ensureModelGenerationRoute()) return
+        chatSession.manuallyCompressContext(currentModelSelection())
+    }
 
-                                    AiChatContextEventType.COMPLETED -> {
-                                        val after = event.afterTokens ?: event.beforeTokens
-                                        event.afterUsage?.let { contextUsage = it }
-                                        event.compaction?.let {
-                                            contextCompactionCount = it.revision
-                                        }
-                                        contextStatusText =
-                                            "上下文已手动压缩 · ${formatContextTokens(event.beforeTokens)} → ${formatContextTokens(after)}"
-                                    }
-                                }
-                            }
-                        }
-                    )
-                }
+    fun addImageAttachments(ids: List<String>, editAsset: String? = null) {
+        val combined = (chatSession.imageDraftAssets + ids).distinct()
+        if (combined.size > AI_IMAGE_ATTACHMENT_LIMIT) {
+            Toast.makeText(context, context.getString(R.string.ai_image_attachment_limit,
+                AI_IMAGE_ATTACHMENT_LIMIT), Toast.LENGTH_SHORT).show()
+            return
+        }
+        chatSession.replaceImageDraftAssets(combined, editAsset)
+        persistActiveSession()
+    }
+
+    fun continueEditingImage(file: File) {
+        if (!imageAttachmentsAvailable || chatSession.deleted || !ensureCodexImageRoute()) return
+        val origin = chatSession
+        imagePreview = null
+        scope.launch {
+            val knownId = file.nameWithoutExtension.takeIf { AiImageAssets.file(it) == file }
+            if (origin.imageDraftAssets.size >= AI_IMAGE_ATTACHMENT_LIMIT &&
+                (knownId == null || knownId !in origin.imageDraftAssets)
+            ) {
+                Toast.makeText(context, context.getString(R.string.ai_image_attachment_limit,
+                    AI_IMAGE_ATTACHMENT_LIMIT), Toast.LENGTH_SHORT).show()
+                return@launch
             }
-            val canceled = result.exceptionOrNull() is CancellationException
-            result.onSuccess { compacted ->
-                uploadMessages.clear()
-                uploadMessages.addAll(
-                    compacted.contextMessages.map { message -> message.deepCopy().asJsonObject }
-                )
-                contextUsage = compacted.contextUsage
-                contextCompactionCount = compacted.record.revision
-                messages += ChatUiMessage(
-                    role = ChatRole.ASSISTANT,
-                    content = "上下文已手动压缩",
-                    contextCompaction = compacted.record
-                )
-                persistActiveSession()
-            }.onFailure { error ->
-                contextStatusText = null
-                if (!canceled) {
-                    Toast.makeText(
-                        context,
-                        error.localizedMessage ?: "上下文压缩失败",
-                        Toast.LENGTH_LONG
-                    ).show()
+            try {
+                val assetId = knownId ?: AiImageAssets.importExistingResult(file)
+                if (selectedSession.value === origin && !origin.deleted) {
+                    val editAsset = assetId.takeIf { currentModelSelection().isCodexChatSelection() }
+                    addImageAttachments(listOf(assetId), editAsset = editAsset)
+                } else if (knownId == null) {
+                    withContext(Dispatchers.IO) { AiImageAssets.discardUnsent(assetId) }
                 }
-            }
-            manualContextCompacting = false
-            sending = false
-            sendingJob = null
-            refreshContextUsage()
-            if (canceled) return@launch
-            val queuedMessages = messages.filter {
-                it.role == ChatRole.USER && it.deliveryState == ChatDeliveryState.QUEUED
-            }
-            if (queuedMessages.isNotEmpty()) {
-                val queuedIds = queuedMessages.map { it.id }
-                queuedMessages.forEach { message ->
-                    uploadMessages += chatClient.newUserMessage(
-                        AiChatContextManager.removeEmbeddedSkill(
-                            message.uploadContent?.takeIf { it.isNotBlank() } ?: message.content
-                        )
-                    )
-                }
-                updateDeliveryState(queuedIds, ChatDeliveryState.IN_FLIGHT)
-                refreshContextUsage()
-                persistActiveSession()
-                sendCurrentMessages(queuedIds)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Toast.makeText(context,
+                    (error as? AiChatGptException)?.messageRes ?: R.string.ai_image_attachment_unavailable,
+                    Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     fun sendMessage(
         messageOverride: String? = null,
-        uploadOverride: String? = null
+        uploadOverride: String? = null,
+        imageRetry: ChatUiMessage? = null,
     ) {
-        if (!ensureSkillToolSupport()) return
-        val content = (messageOverride ?: input).trim()
-        if (content.isBlank()) {
-            Toast.makeText(context, R.string.ai_chat_empty, Toast.LENGTH_SHORT).show()
+        if (!sessionRestored || chatSession.deleted || chatSession.runningHostAction) return
+        val useMediaDraft = imageAttachmentsAvailable && messageOverride == null && uploadOverride == null && imageRetry == null
+        val imageAssets = imageRetry?.imageAssetIds
+            ?: if (useMediaDraft) chatSession.imageDraftAssets.toList() else emptyList()
+        val selection = currentModelSelection()
+        val imageAction = imageRetry?.directImageAction
+            ?: (useMediaDraft && chatSession.directImageDraft && selection.isCodexChatSelection())
+        if (!imageAction && !ensureSkillToolSupport()) return
+        val content = (imageRetry?.content ?: messageOverride ?: input).trim()
+        if (imageImporting && useMediaDraft) return
+        if (content.isBlank() && (imageAssets.isEmpty() || imageAction)) {
+            val label = if (imageAction && imageAssets.isNotEmpty()) R.string.ai_image_describe_edit else R.string.ai_chat_empty
+            Toast.makeText(context, label, Toast.LENGTH_SHORT).show()
             return
         }
-        input = ""
-        val uploadContent = uploadOverride
+        if (chatSession.sending && (imageAction || imageAssets.isNotEmpty())) {
+            Toast.makeText(context, R.string.ai_image_wait_turn, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (imageAction && !ensureCodexImageRoute(selection)) return
+        if (bookSearchAvailability() != AiBookSearchAvailability.READY) return
+        if (!imageAction && !ensureModelGenerationRoute()) return
+        val isBookSearch = activeAgentMode.id == AgentModeRegistry.BOOK_SEARCH_ID
+        if (isBookSearch) chatSession.cancelBookSourceLookup()
+        if (imageRetry == null) input = ""
+        if (useMediaDraft) {
+            chatSession.clearImageDraft()
+            chatSession.saveImageDraft()
+        }
+        val originalUpload = uploadOverride
             ?.trim()
             ?.takeIf { it.isNotBlank() }
-            ?: buildUserUploadContent(content, inputAttachments)
+            ?: if (imageAction) content else buildUserUploadContent(content, inputAttachments)
+        val rejected = if (isBookSearch) messages.flatMap { message ->
+            val reply = message.bookSearch ?: return@flatMap emptyList()
+            reply.candidates.filter { it.key in reply.rejectedKeys }
+        }.distinctBy { it.key }.takeLast(12) else emptyList()
+        val uploadContent = if (rejected.isEmpty()) originalUpload else originalUpload +
+            rejected.joinToString(prefix = "\n\n[用户已排除的作品]\n", separator = "\n") {
+                "《${it.title}》 ${it.author} (${it.media?.name.orEmpty()})"
+            }
         val userMessage = ChatUiMessage(
             role = ChatRole.USER,
             content = content,
             deliveryState = ChatDeliveryState.QUEUED,
-            uploadContent = uploadContent
+            uploadContent = uploadContent,
+            imageAssetIds = imageAssets,
+            directImageAction = imageAction,
         )
+        val specified = if (isBookSearch && !chatSession.sending) explicitAiBookSearchCandidate(content) else null
+        if (specified != null) {
+            messages += userMessage.copy(deliveryState = ChatDeliveryState.SENT)
+            val message = ChatUiMessage(
+                role = ChatRole.ASSISTANT,
+                content = context.getString(R.string.ai_book_search_identified, specified.title, specified.author),
+                bookSearch = AiBookSearchReply(listOf(specified), verified = true, findInSources = true),
+            )
+            messages += message
+            uploadMessages += chatClient.newUserMessage(uploadContent)
+            uploadMessages += JsonObject().apply {
+                addProperty("role", "assistant")
+                addProperty("content", message.content)
+            }
+            chatSession.refreshContextUsage()
+            persistActiveSession()
+            chatSession.launchBookSourceLookup(message.id, specified, automatically = true)
+            scope.launch {
+                if (selectedSession.value === chatSession) listState.scrollToItem(messages.lastIndex.coerceAtLeast(0))
+            }
+            return
+        }
         messages += userMessage
         scope.launch {
-            listState.scrollToItem(messages.lastIndex)
+            if (selectedSession.value === chatSession && chatSearch == null) listState.scrollToItem(messages.lastIndex)
         }
         inputAttachments.removeAll { it.type == AiChatInputAttachmentType.CONTEXT }
         persistActiveSession()
-        if (sending) return
+        if (chatSession.sending) return
         val recoverableMessages = messages.filter {
             it.role == ChatRole.USER && it.deliveryState == ChatDeliveryState.RECOVERABLE
         }
@@ -1664,50 +1552,31 @@ private fun AiChatRoute(onBack: () -> Unit) {
             uploadMessages += chatClient.newUserMessage(
                 AiChatContextManager.removeEmbeddedSkill(
                     message.uploadContent?.takeIf { it.isNotBlank() } ?: message.content
-                )
+                ),
+                message.imageAssetIds,
+                message.directImageAction,
             )
         }
-        syncModeEntryContext()
-        syncActiveSkillContext()
-        updateDeliveryState(queuedIds, ChatDeliveryState.IN_FLIGHT)
-        refreshContextUsage()
+        chatSession.syncModeEntryContext()
+        chatSession.syncActiveSkillContext()
+        chatSession.updateDeliveryState(queuedIds, ChatDeliveryState.IN_FLIGHT)
+        chatSession.refreshContextUsage()
         persistActiveSession()
         sendCurrentMessages(queuedIds)
     }
 
-    fun markInteractionResolved(
-        messageId: String,
-        interactionId: String,
-        resultLabel: String,
-        resultSelections: Map<String, String> = emptyMap()
-    ) {
-        updateMessage(messageId) { message ->
-            message.copy(
-                resolvedInteractionIds = (message.resolvedInteractionIds + interactionId).distinct(),
-                interactionResultLabels = message.interactionResultLabels +
-                    (interactionId to resultLabel.trim()),
-                interactionResultSelections = if (resultSelections.isEmpty()) {
-                    message.interactionResultSelections
-                } else {
-                    message.interactionResultSelections + (interactionId to resultSelections)
-                }
-            )
-        }
-        persistActiveSession()
-    }
-
     fun submitInteraction(messageId: String, action: AiChatInteractionAction) {
-        if (!ensureSkillToolSupport()) {
+        if (!ensureSkillToolSupport() || !ensureModelGenerationRoute()) {
             action.onCompleted(false)
             return
         }
-        if (sending) {
+        if (chatSession.sending || chatSession.runningHostAction) {
             Toast.makeText(context, "正在生成中", Toast.LENGTH_SHORT).show()
             action.onCompleted(false)
             return
         }
         if (action.interaction.type != AiChatInteractionType.MULTI_TAG_STANCE) {
-            markInteractionResolved(
+            chatSession.markInteractionResolved(
                 messageId = messageId,
                 interactionId = action.interaction.id,
                 resultLabel = action.displayText
@@ -1716,65 +1585,76 @@ private fun AiChatRoute(onBack: () -> Unit) {
             sendMessage(action.displayText, action.prompt)
             return
         }
-        syncModeEntryContext()
-        syncActiveSkillContext()
+        chatSession.syncModeEntryContext()
+        chatSession.syncActiveSkillContext()
         val activeSkill = AiChatContextManager.activeSkillSnapshot(uploadMessages)
         if (!action.skipped && activeSkill == null) {
             Toast.makeText(context, "当前系统工作流状态无效，请重新进入功能", Toast.LENGTH_LONG).show()
             action.onCompleted(false)
             return
         }
-        val conversationId = activeSessionId
-            ?: UUID.randomUUID().toString().also { activeSessionId = it }
+        val interaction = action.interaction
+        val selectedValues = action.selectedValues.toMap()
+        val skipped = action.skipped
+        val modelSelection = currentModelSelection()
         val turnId = UUID.randomUUID().toString()
-        scope.launch {
+        val task = chatSession.runHostAction {
             val result = runCatching {
-                if (action.skipped) {
-                    AiChatInteractionMemoryWriter.skipped(action.interaction)
+                if (skipped) {
+                    AiChatInteractionMemoryWriter.skipped(interaction)
                 } else {
                     withContext(Dispatchers.IO) {
                         AiChatInteractionMemoryWriter.write(
-                            interaction = action.interaction,
-                            selectedValues = action.selectedValues,
-                            agentMode = activeAgentMode,
+                            interaction = interaction,
+                            selectedValues = selectedValues,
+                            agentMode = mode,
                             activeSkill = requireNotNull(activeSkill),
-                            conversationId = conversationId,
+                            conversationId = id,
                             turnId = turnId
                         )
                     }
                 }
             }
             result.onSuccess { writeResult ->
+                if (deleted) return@onSuccess
                 markInteractionResolved(
                     messageId = messageId,
-                    interactionId = action.interaction.id,
+                    interactionId = interaction.id,
                     resultLabel = writeResult.displayText,
-                    resultSelections = action.selectedValues
+                    resultSelections = selectedValues
                 )
-                action.onCompleted(true)
-                uploadMessages += chatClient.newUserMessage(writeResult.continuationPrompt)
-                syncModeEntryContext()
-                syncActiveSkillContext()
-                refreshContextUsage()
-                persistActiveSession()
-                sendCurrentMessages()
+                this.uploadMessages += aiChatSessions.client.newUserMessage(writeResult.continuationPrompt)
+                sendCurrentMessages(emptyList(), modelSelection)
             }.onFailure { error ->
-                action.onCompleted(false)
-                Toast.makeText(
-                    context,
-                    error.localizedMessage ?: "阅读偏好保存失败",
-                    Toast.LENGTH_LONG
-                ).show()
+                if (!deleted && error !is CancellationException) {
+                    this.contextStatusText = error.localizedMessage ?: "阅读偏好保存失败"
+                }
+            }
+        }
+        scope.launch {
+            val result = task.await()
+            if (selectedSession.value === chatSession) {
+                action.onCompleted(result.isSuccess)
             }
         }
     }
 
     fun regenerateMessage(message: ChatUiMessage) {
-        if (!ensureSkillToolSupport()) return
-        if (sending) {
+        val targetIndex = messages.indexOfFirst { it.id == message.id }
+        val imagePrompt = if (targetIndex < 0) null else messages.take(targetIndex + 1)
+            .lastOrNull { it.role == ChatRole.USER }?.takeIf { it.directImageAction }
+        if (imagePrompt != null) {
+            if (chatSession.sending || chatSession.runningHostAction || imageImporting) return
+            sendMessage(imageRetry = imagePrompt)
+            return
+        }
+        if (!ensureSkillToolSupport() || !ensureModelGenerationRoute()) return
+        if (bookSearchAvailability() != AiBookSearchAvailability.READY) return
+        if (chatSession.sending || chatSession.runningHostAction) {
             Toast.makeText(context, "正在生成中", Toast.LENGTH_SHORT).show()
             return
         }
+        if (activeAgentMode.id == AgentModeRegistry.BOOK_SEARCH_ID) chatSession.cancelBookSourceLookup()
         val index = messages.indexOfFirst { it.id == message.id }
         if (index < 0) {
             return
@@ -1798,40 +1678,37 @@ private fun AiChatRoute(onBack: () -> Unit) {
                     message.uploadContent ?: message.content
                 )
                 ChatRole.ASSISTANT -> message.content
+            },
+            targetInterruptedReplyId = message.id.takeIf {
+                message.role == ChatRole.ASSISTANT && message.uploadContent != null
             }
         )
         messages.replaceWith(truncatedMessages)
         uploadMessages.clear()
         uploadMessages.addAll(preservedHistory ?: rebuildUploadMessages(chatClient, messages))
-        syncModeEntryContext()
-        syncActiveSkillContext()
+        chatSession.syncModeEntryContext()
+        chatSession.syncActiveSkillContext()
         val activeUserIds = if (message.role == ChatRole.USER) listOf(message.id) else emptyList()
-        updateDeliveryState(activeUserIds, ChatDeliveryState.IN_FLIGHT)
+        chatSession.updateDeliveryState(activeUserIds, ChatDeliveryState.IN_FLIGHT)
         persistActiveSession()
         sendCurrentMessages(activeUserIds)
     }
 
     fun deleteMessage(message: ChatUiMessage) {
-        if (sending) {
+        if (chatSession.sending || chatSession.runningHostAction) {
             Toast.makeText(context, "正在生成中，暂不能删除消息", Toast.LENGTH_SHORT).show()
             return
         }
+        if (message.id == chatSession.activeBookLookupMessageId) chatSession.cancelBookSourceLookup()
         val removed = messages.removeAll { it.id == message.id }
         if (!removed) {
             return
         }
         uploadMessages.clear()
         uploadMessages.addAll(rebuildUploadMessages(chatClient, messages))
-        refreshContextUsage()
-        contextCompactionCount = AiChatContextManager.compactionRevision(uploadMessages)
-        if (messages.any { !it.loading }) {
-            persistActiveSession()
-        } else {
-            activeSessionId?.let { sessionId ->
-                sessions.removeAll { it.id == sessionId }
-                saveHistory(sessionId)
-            }
-        }
+        chatSession.refreshContextUsage()
+        chatSession.contextCompactionCount = AiChatContextManager.compactionRevision(uploadMessages)
+        persistActiveSession()
     }
 
     fun toggleFavorite(message: ChatUiMessage) {
@@ -1870,11 +1747,14 @@ private fun AiChatRoute(onBack: () -> Unit) {
         selectedExportMessageIds.clear()
     }
 
+    fun selectAllExportMessages() {
+        selectedExportMessageIds.replaceWith(messages.filterNot { it.loading }.map { it.id })
+    }
+
     fun invertExportSelection() {
         val selected = selectedExportMessageIds.toSet()
         val allIds = messages.filterNot { it.loading }.map { it.id }
-        selectedExportMessageIds.clear()
-        selectedExportMessageIds.addAll(allIds.filterNot { it in selected })
+        selectedExportMessageIds.replaceWith(allIds.filterNot { it in selected })
     }
 
     fun confirmExportSelection() {
@@ -1892,10 +1772,20 @@ private fun AiChatRoute(onBack: () -> Unit) {
             Toast.makeText(context, "请选择要导出的消息", Toast.LENGTH_SHORT).show()
             return
         }
+        val defaultAssistantLabel = context.getString(R.string.ai_assistant)
+        val senderLabel: (ChatUiMessage) -> String = { message ->
+            if (message.role == ChatRole.USER) "用户"
+            else resolveChatMessageModel(message.usageProviderId, message.usageModelId, messageModelProviders)
+                .label ?: defaultAssistantLabel
+        }
         runCatching {
             when (format) {
-                ChatExportFormat.MARKDOWN -> exportChatMessagesAsMarkdown(context, currentTitle, selectedMessages)
-                ChatExportFormat.IMAGE -> exportChatMessagesAsImage(context, currentTitle, selectedMessages)
+                ChatExportFormat.MARKDOWN -> exportChatMessagesAsMarkdown(
+                    context, buildChatExportMarkdown(currentTitle, selectedMessages, senderLabel)
+                )
+                ChatExportFormat.IMAGE -> exportChatMessagesAsImage(
+                    context, buildChatExportPlainText(currentTitle, selectedMessages, senderLabel)
+                )
             }
         }.onSuccess { file ->
             shareChatExportFile(context, file, format.mimeType)
@@ -1906,7 +1796,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
     }
 
     fun forkMessage(message: ChatUiMessage) {
-        if (sending) {
+        if (chatSession.sending || chatSession.runningHostAction) {
             Toast.makeText(context, "正在生成中，暂不能创建分支", Toast.LENGTH_SHORT).show()
             return
         }
@@ -1920,15 +1810,15 @@ private fun AiChatRoute(onBack: () -> Unit) {
             return
         }
         persistActiveSession()
-        activeSessionId = UUID.randomUUID().toString()
-        messages.replaceWith(forkedMessages)
-        uploadMessages.clear()
-        uploadMessages.addAll(rebuildUploadMessages(chatClient, messages))
-        refreshContextUsage()
-        contextCompactionCount = AiChatContextManager.compactionRevision(uploadMessages)
-        contextStatusText = null
-        selectedDrawerIndex = 2
-        persistActiveSession()
+        val forked = AiChatSessionRuntime(aiChatSessions, activeAgentMode, activeModeEntryContext, inputAttachments.toList())
+        forked.modeEntryStarted = modeEntryStarted
+        forked.manualMcpCapabilityIds.replaceWith(manualMcpCapabilityIds.toList())
+        forked.enabledMcpCapabilityIds.replaceWith(enabledMcpCapabilityIds.toList())
+        forked.messages.addAll(forkedMessages)
+        forked.uploadMessages.replaceWith(rebuildUploadMessages(chatClient, forked.messages))
+        forked.contextCompactionCount = AiChatContextManager.compactionRevision(forked.uploadMessages)
+        forked.persist()
+        selectRuntime(forked)
         Toast.makeText(context, "已创建分支", Toast.LENGTH_SHORT).show()
     }
 
@@ -1941,19 +1831,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
         if (targetIds.isEmpty()) {
             return
         }
-        val now = System.currentTimeMillis()
-        sessions.indices.forEach { index ->
-            if (sessions[index].id in targetIds) {
-                sessions[index] = sessions[index].copy(
-                    isPinned = true,
-                    updatedAt = now
-                )
-            }
-        }
-        sessions.sortChatSessions()
-        scope.launch(Dispatchers.IO) {
-            AiChatHistoryStore.updatePinned(targetIds, isPinned = true, updatedAt = now)
-        }
+        aiChatSessions.pin(targetIds, System.currentTimeMillis())
         Toast.makeText(context, "已置顶 ${targetIds.size} 条聊天记录", Toast.LENGTH_SHORT).show()
     }
 
@@ -1976,32 +1854,16 @@ private fun AiChatRoute(onBack: () -> Unit) {
         }
         val wasActive = activeSessionId in targetIds
         val deleteCount = sessions.count { it.id in targetIds }
-        sessions.removeAll { it.id in targetIds }
-        loadedSessionDetailIds.removeAll(targetIds)
+        aiChatSessions.delete(targetIds)
         selectedHistoryIds.removeAll(targetIds)
-        scope.launch(Dispatchers.IO) {
-            AiChatHistoryStore.deleteSessions(targetIds)
-        }
         if (wasActive) {
-            val nextSession = sessions.firstOrNull()
-            if (nextSession != null) {
-                openSession(nextSession)
-            } else {
-                activeSessionId = UUID.randomUUID().toString()
-                activeAgentMode = initialAgentMode
-                activeModeEntryContext = initialModeEntryContext
-                modeEntryStarted = false
-                messages.clear()
-                uploadMessages.clear()
-                uploadMessages += chatClient.newSystemMessage()
-                inputAttachments.replaceWith(entryAttachments)
-                contextCompactionCount = 0
-                contextStatusText = null
-                manualContextCompacting = false
-                refreshContextUsage()
-                selectedDrawerIndex = 2
-                saveHistory(activeSessionId)
-            }
+            val next = sessions.firstOrNull()
+            if (next == null) {
+                selectRuntime(
+                    AiChatSessionRuntime(aiChatSessions, initialAgentMode, initialModeEntryContext, entryAttachments),
+                    createdForEntry = true,
+                )
+            } else openSession(next)
         } else {
             saveHistory(activeSessionId)
         }
@@ -2022,6 +1884,12 @@ private fun AiChatRoute(onBack: () -> Unit) {
             }
             return
         }
+        aiChatSessions.get(itemSession.id)?.let { session ->
+            session.updateMessage(item.messageId) { it.copy(favorite = false) }
+            session.persist()
+            Toast.makeText(context, "已取消收藏", Toast.LENGTH_SHORT).show()
+            return
+        }
         val sessionIndex = sessions.indexOfFirst { it.id == itemSession.id }
         if (sessionIndex < 0) {
             return
@@ -2036,14 +1904,27 @@ private fun AiChatRoute(onBack: () -> Unit) {
             }
         )
         sessions[sessionIndex] = updatedSession
-        saveSessionSnapshot(updatedSession)
+        aiChatSessions.save(updatedSession)
         Toast.makeText(context, "已取消收藏", Toast.LENGTH_SHORT).show()
     }
 
-    val chatBackgroundDrawable = remember(context) {
+    val theme = NgTheme.snapshot
+    val chatBackgroundDrawable = remember(context, theme.isDark) {
         runCatching {
             ThemeConfig.getBgImage(context, context.resources.displayMetrics)
         }.getOrNull()
+    }
+    val wallpaperBackdrop = if (!theme.isEInk) {
+        rememberNgLiquidGlassBackdrop()
+    } else {
+        null
+    }
+    val chatBackdrop = wallpaperBackdrop.takeUnless { globalSearchMode || statsMode }
+    // Bubbles sample the wallpaper. The floating controls sample the conversation below them.
+    val controlsBackdrop = if (chatBackdrop != null) {
+        rememberNgLiquidGlassBackdrop()
+    } else {
+        null
     }
 
     fun showBookScanContinueEntry(action: AiChatInteractionAction) {
@@ -2051,7 +1932,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
             action.onCompleted(false)
             return
         }
-        if (sending || modeEntryStarted || messages.isNotEmpty()) {
+        if (chatSession.sending || modeEntryStarted || messages.isNotEmpty()) {
             action.onCompleted(false)
             return
         }
@@ -2068,12 +1949,12 @@ private fun AiChatRoute(onBack: () -> Unit) {
             return
         }
         modeEntryStarted = true
-        syncModeEntryContext()
-        syncActiveSkillContext()
+        chatSession.syncModeEntryContext()
+        chatSession.syncActiveSkillContext()
         persistActiveSession()
         val contextSnapshot = activeModeEntryContext
         val workKey = contextSnapshot.payloadString("work_key")
-        scope.launch {
+        val task = chatSession.runHostAction {
             val memoryResult = runCatching {
                 withContext(Dispatchers.IO) {
                     appDb.agentMemoryDao.search(
@@ -2089,7 +1970,8 @@ private fun AiChatRoute(onBack: () -> Unit) {
                     )
                 }
             }
-            messages += ChatUiMessage(
+            if (deleted) return@runHostAction
+            this.messages += ChatUiMessage(
                 role = ChatRole.ASSISTANT,
                 content = buildBookScanContinueEntryContent(
                     context = contextSnapshot,
@@ -2098,14 +1980,19 @@ private fun AiChatRoute(onBack: () -> Unit) {
                 )
             )
             refreshContextUsage()
-            persistActiveSession()
-            action.onCompleted(true)
-            listState.scrollToItem(messages.lastIndex)
+            persist()
+        }
+        scope.launch {
+            task.await()
+            if (selectedSession.value === chatSession) {
+                action.onCompleted(true)
+                if (chatSearch == null) listState.scrollToItem(messages.lastIndex)
+            }
         }
     }
 
     fun startModeEntry(): Boolean {
-        if (!ensureSkillToolSupport()) return false
+        if (!ensureSkillToolSupport() || !ensureModelGenerationRoute()) return false
         if (sending || modeEntryStarted || messages.isNotEmpty()) {
             return false
         }
@@ -2121,16 +2008,16 @@ private fun AiChatRoute(onBack: () -> Unit) {
             return false
         }
         modeEntryStarted = true
-        syncModeEntryContext()
-        syncActiveSkillContext()
+        chatSession.syncModeEntryContext()
+        chatSession.syncActiveSkillContext()
         uploadMessages += chatClient.newUserMessage(MODE_ENTRY_START_PROMPT)
-        refreshContextUsage()
+        chatSession.refreshContextUsage()
         persistActiveSession()
         sendCurrentMessages()
         return true
     }
 
-    val modeEntryStateDecision = if (!sending) {
+    val modeEntryStateDecision = if (sessionRestored && !sending) {
         resolveAgentModeEntryLaunch(
             policy = activeAgentMode.entryPolicy,
             hasRequiredContext = activeModeEntryContext != null,
@@ -2152,6 +2039,26 @@ private fun AiChatRoute(onBack: () -> Unit) {
         null
     }
     val modeEntryLaunchDecision = modeEntryStateDecision
+
+    val search = chatSearch
+    val searchMatches = if (search != null) rememberChatSearchMatches(search, messages) else null
+    val searchLocation = search?.location
+    val searchResultIndex = searchMatches?.messages?.indexOfFirst {
+        it.messageId == searchLocation?.match?.messageId
+    } ?: -1
+
+    fun locateChatSearchMatch(match: AiChatSearchMatch, query: AiChatSearchQuery) {
+        if (messages.none { it.id == match.messageId && !it.loading }) return
+        searchFocusManager.clearFocus()
+        searchKeyboard?.hide()
+        chatSearch?.location = AiChatSearchLocation(match, query)
+    }
+
+    LaunchedEffect(searchLocation, searchMatches) {
+        if (searchLocation != null && searchMatches != null && searchResultIndex < 0) {
+            showChatSearchResults(edit = false)
+        }
+    }
 
     LaunchedEffect(
         activeSessionId,
@@ -2226,10 +2133,29 @@ private fun AiChatRoute(onBack: () -> Unit) {
             }
         )
     }
+    val imageAttachmentActions = if (imageAttachmentsAvailable) {
+        rememberAiImageAttachmentActions(
+            targetId = activeSessionId,
+            attachmentCount = chatSession.imageDraftAssets.size,
+            onDismiss = imageAttachmentMenu::close,
+            onAdd = { addImageAttachments(it) },
+            onDirect = if (showImageActions) {
+                {
+                    if (ensureCodexImageRoute()) {
+                        chatSession.setExplicitImageDraft(true)
+                        persistActiveSession()
+                    }
+                }
+            } else null,
+            importingChanged = { imageImporting = it },
+        )
+    } else null
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = search == null || drawerState.isOpen,
         drawerContent = {
             RikkaChatDrawer(
+                wallpaperBackdrop = wallpaperBackdrop,
                 selectedIndex = selectedDrawerIndex,
                 historyGroups = drawerHistoryGroups,
                 historyLoaded = historyLoaded,
@@ -2243,7 +2169,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
                     when (targetIndex) {
                         1 -> ensureAllHistoryDetails {
                             selectedDrawerIndex = targetIndex
-                            previewMode = false
+                            chatSearch = null
                             globalSearchMode = true
                             globalSearchQuery = ""
                             scope.launch { drawerState.close() }
@@ -2299,13 +2225,12 @@ private fun AiChatRoute(onBack: () -> Unit) {
                 onDeleteFavorite = ::deleteFavorite,
                 onOpenStats = {
                     persistActiveSession()
-                    ensureAllHistoryDetails {
-                        statsMode = true
-                        globalSearchMode = false
-                        previewMode = false
-                        selectedDrawerIndex = 2
-                        scope.launch { drawerState.close() }
-                    }
+                    statsMode = true
+                    globalSearchMode = false
+                    chatSearch = null
+                    selectedDrawerIndex = 2
+                    scope.launch { drawerState.close() }
+                    ensureAllHistoryDetails()
                 },
                 onOpenSettings = {
                     scope.launch { drawerState.close() }
@@ -2322,110 +2247,147 @@ private fun AiChatRoute(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
         ) {
-            NgThemeGradientBackground(modifier = Modifier.fillMaxSize())
-            if (chatBackgroundDrawable != null) {
-                ChatBackgroundImage(
+            if (chatBackdrop == null && !globalSearchMode && !statsMode) {
+                AiChatBackground(
                     drawable = chatBackgroundDrawable,
-                    modifier = Modifier.fillMaxSize()
+                    backdrop = wallpaperBackdrop,
+                    showMask = true,
                 )
             }
-            NgEffectThemeBackground(modifier = Modifier.fillMaxSize())
-            AiChatBackgroundMask()
             if (globalSearchMode) {
-                GlobalMessageSearchPage(
-                    query = globalSearchQuery,
-                    onQueryChange = { globalSearchQuery = it },
-                    sessions = sessions,
-                    activeSessionId = activeSessionId,
-                    currentMessages = messages,
-                    onBack = {
-                        globalSearchMode = false
-                        globalSearchQuery = ""
-                        selectedDrawerIndex = 2
-                    },
-                    onOpenResult = { result ->
-                        persistActiveSession()
-                        if (result.session != null && result.session.id != activeSessionId) {
-                            openSession(result.session)
-                        }
-                        globalSearchMode = false
-                        globalSearchQuery = ""
-                        previewMode = false
-                        selectedDrawerIndex = 2
-                        scope.launch {
-                            listState.animateScrollToItem(result.messageIndex.coerceAtLeast(0))
-                        }
-                    }
+                val searchBackdrop = wallpaperBackdrop ?: rememberNgLiquidGlassBackdrop()
+                AiChatBackground(
+                    drawable = chatBackgroundDrawable,
+                    backdrop = searchBackdrop,
+                    showMask = false,
                 )
+                NgLiquidGlassBackdropProvider(searchBackdrop) {
+                    GlobalMessageSearchPage(
+                        query = globalSearchQuery,
+                        backdrop = wallpaperBackdrop,
+                        onQueryChange = { globalSearchQuery = it },
+                        sessions = sessions,
+                        activeSessionId = activeSessionId,
+                        currentMessages = messages,
+                        onBack = {
+                            globalSearchMode = false
+                            globalSearchQuery = ""
+                            selectedDrawerIndex = 2
+                        },
+                        onOpenResult = { result ->
+                            persistActiveSession()
+                            pendingGlobalSearchResult = result
+                            if (result.session != null && result.session.id != activeSessionId) {
+                                openSession(result.session)
+                            }
+                            globalSearchMode = false
+                            globalSearchQuery = ""
+                            chatSearch = null
+                            selectedDrawerIndex = 2
+                        },
+                    )
+                }
             } else if (statsMode) {
-                AiChatStatsPage(
-                    stats = remember(sessionSnapshots, activeSessionId, currentMessageSnapshots) {
-                        buildAiChatStats(sessionSnapshots, activeSessionId, currentMessageSnapshots)
-                    },
-                    onBack = {
-                        statsMode = false
-                        selectedDrawerIndex = 2
-                    }
+                val statsBackdrop = wallpaperBackdrop ?: rememberNgLiquidGlassBackdrop()
+                AiChatBackground(
+                    drawable = chatBackgroundDrawable,
+                    backdrop = statsBackdrop,
+                    showMask = false,
                 )
+                val stats = if (historyDetailsLoaded) {
+                    val result by produceState<AiChatStats?>(
+                        null, sessionSnapshots, activeSessionId, currentMessageSnapshots
+                    ) {
+                        value = withContext(Dispatchers.Default) {
+                            buildAiChatStats(sessionSnapshots, activeSessionId, currentMessageSnapshots)
+                        }
+                    }
+                    result
+                } else null
+                NgLiquidGlassBackdropProvider(statsBackdrop) {
+                    AiChatStatsPage(
+                        stats = stats,
+                        loading = historyDetailsLoading || (historyDetailsLoaded && stats == null),
+                        onRetry = { ensureAllHistoryDetails() },
+                        onBack = {
+                            statsMode = false
+                            selectedDrawerIndex = 2
+                        }
+                    )
+                }
             } else {
+                LaunchedEffect(pendingSearchJump, activeSessionId, openingSessionId) {
+                    val result = pendingSearchJump ?: return@LaunchedEffect
+                    if (openingSessionId != null && openingSessionId == result.sessionId) {
+                        return@LaunchedEffect
+                    }
+                    if (activeSessionId == result.sessionId) {
+                        val index = messages.indexOfFirst { it.id == result.messageId }
+                        if (index >= 0) {
+                            val entryCount = if (modeEntryConfirmation == null) 0 else 1
+                            listState.requestScrollToItem(index + entryCount)
+                        }
+                    }
+                    pendingGlobalSearchResult = null
+                }
+                val bookSearchNotice: (@Composable () -> Unit)? = if (
+                    bookSearchMode && bookSearchAvailability != AiBookSearchAvailability.READY
+                ) {
+                    { AiBookSearchWebNotice(bookSearchAvailability) }
+                } else null
                 Scaffold(
                     containerColor = Color.Transparent,
                     contentWindowInsets = WindowInsets(0),
                     topBar = {
-                        Surface(
-                            color = MaterialTheme.colorScheme.background.copy(alpha = 0.86f)
-                        ) {
-                            TopAppBar(
-                                modifier = Modifier.statusBarsPadding(),
-                                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                                navigationIcon = {
-                                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                        Icon(Icons.Rounded.Menu, contentDescription = "Menu")
+                        if (search == null) {
+                            AiChatToolbar(
+                                title = currentTitle,
+                                modelLabel = selectedModelLabel,
+                                bookSearchMode = bookSearchMode,
+                                 backdrop = controlsBackdrop,
+                                onOpenMenu = { scope.launch { drawerState.open() } },
+                                onOpenSearch = {
+                                    chatSearch = AiChatConversationSearchState(
+                                        entryIndex = listState.firstVisibleItemIndex,
+                                        entryOffset = listState.firstVisibleItemScrollOffset,
+                                    )
+                                },
+                                onNewChat = { startNewChat() },
+                            )
+                        } else {
+                            AiChatConversationSearchBar(
+                                search = search,
+                                 backdrop = controlsBackdrop,
+                                resultIndex = searchResultIndex,
+                                resultCount = searchMatches?.messages?.size ?: 0,
+                                onBack = ::backFromChatSearch,
+                                onExit = ::exitChatSearch,
+                                onEdit = { showChatSearchResults(edit = true) },
+                                onPrevious = {
+                                    searchMatches?.messages?.getOrNull(searchResultIndex - 1)?.let {
+                                        locateChatSearchMatch(it, searchMatches.query)
                                     }
                                 },
-                                title = {
-                                    Column {
-                                        Text(
-                                            text = currentTitle,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = "默认助手 / $selectedModelLabel",
-                                            color = LocalContentColor.current.copy(alpha = 0.62f),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                onNext = {
+                                    searchMatches?.messages?.getOrNull(searchResultIndex + 1)?.let {
+                                        locateChatSearchMatch(it, searchMatches.query)
                                     }
                                 },
-                                actions = {
-                                    IconButton(onClick = { previewMode = !previewMode }) {
-                                        Icon(
-                                            imageVector = if (previewMode) Icons.Rounded.Close else Icons.Rounded.Search,
-                                            contentDescription = if (previewMode) "Close search" else "Search messages"
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            startNewChat()
-                                        }
-                                    ) {
-                                        Icon(Icons.Rounded.AddComment, contentDescription = "New chat")
-                                    }
-                                }
                             )
                         }
                     },
-                    bottomBar = {
+                    bottomBar = bottomBar@{
+                        if (search != null) return@bottomBar
                         Column {
                             AnimatedVisibility(visible = exportSelectionMode) {
                                 ExportSelectionFloatingBar(
                                     selectedCount = selectedExportMessageIds.size,
+                                    selectionAvailable = messages.any { !it.loading },
+                                     backdrop = controlsBackdrop,
                                     onCancel = ::cancelExportSelection,
+                                    onSelectAll = ::selectAllExportMessages,
                                     onInvert = ::invertExportSelection,
-                                    onConfirm = ::confirmExportSelection
+                                    onConfirm = ::confirmExportSelection,
                                 )
                             }
                             AnimatedVisibility(visible = !contextStatusText.isNullOrBlank()) {
@@ -2441,17 +2403,37 @@ private fun AiChatRoute(onBack: () -> Unit) {
                             }
                             RikkaChatInput(
                                 value = input,
-                                onValueChange = { input = it },
-                                messageInputEnabled = modeEntryConfirmation == null &&
-                                    skillToolErrorText == null,
-                                sending = sending,
+                                onValueChange = {
+                                    input = it
+                                    if (imageAttachmentsAvailable) chatSession.saveImageDraft()
+                                    if (bookSearchMode) {
+                                        bookSearchDraftEdited = true
+                                        bookSearchGreetingPending = false
+                                    }
+                                },
+                                onInputFocused = {
+                                    if (bookSearchMode) bookSearchGreetingPending = false
+                                },
+                                 backdrop = controlsBackdrop,
+                                 messageInputEnabled = sessionRestored && !chatSession.runningHostAction && modeEntryConfirmation == null &&
+                                    (skillToolErrorText == null || directImageDraft) &&
+                                    bookSearchAvailability == AiBookSearchAvailability.READY,
+                                 sendEnabled = sessionRestored && !chatSession.runningHostAction && modeEntryConfirmation == null &&
+                                    (skillToolErrorText == null || directImageDraft) && !imageImporting &&
+                                    bookSearchAvailability == AiBookSearchAvailability.READY,
+                                sending = sending || chatSession.activeBookLookupMessageId != null,
+                                inputNotice = bookSearchNotice,
+                                inputHint = if (bookSearchMode) stringResource(
+                                    if (messages.isEmpty()) R.string.ai_book_search_hint else R.string.ai_book_search_follow_up
+                                ) else null,
                                 modelIconRes = selectedModelIconRes,
                                 reasoningEnabled = selectedReasoningEnabled,
+                                webAccess = webAccess,
                                 mcpEnabled = internalMcpEnabled && enabledMcpCapabilityIds.isNotEmpty(),
                                 skillEnabled = inputAttachments.any {
                                     it.type == AiChatInputAttachmentType.SKILL
                                 },
-                                mcpControlVisible = activeAgentMode.allowsManualMcpCapabilities,
+                                mcpControlVisible = activeAgentMode.allowsManualMcpCapabilities || bookSearchMode,
                                 skillControlVisible = skillInputPolicy.selectorVisible,
                                 contextAvailable = availableContextAttachments.isNotEmpty()
                                         || inputAttachments.any {
@@ -2460,12 +2442,36 @@ private fun AiChatRoute(onBack: () -> Unit) {
                                 suggestionAvailable = skillSuggestions.isNotEmpty(),
                                 suggestionExpanded = suggestionsExpanded,
                                 contextUsage = contextUsage,
+                                contextUsageWithTools = imageAttachmentsAvailable && sessionRestored,
+                                imageAssets = chatSession.imageDraftAssets,
+                                directImage = directImageDraft,
+                                showDirectImageLabel = directImageDraft && chatSession.explicitImageDraft,
+                                imageImporting = imageImporting,
+                                imageAttachmentButton = if (showImageActions && imageAttachmentActions != null && sessionRestored) {
+                                    {
+                                        AiImageAttachmentMenuButton(
+                                            actions = imageAttachmentActions,
+                                            menu = imageAttachmentMenu,
+                                            enabled = !imageImporting,
+                                        )
+                                    }
+                                } else null,
+                                onImagePreview = { file -> imagePreview = file to false },
+                                onImageRemove = { assetId ->
+                                    chatSession.replaceImageDraftAssets(chatSession.imageDraftAssets - assetId)
+                                    persistActiveSession()
+                                },
+                                onClearDirectImage = {
+                                    chatSession.setExplicitImageDraft(false)
+                                    persistActiveSession()
+                                },
                                 attachments = inputAttachments,
                                 skills = activeSkillAttachments,
                                 skillRemovable = skillInputPolicy.removable,
-                                skillErrorText = skillToolErrorText,
+                                skillErrorText = skillToolErrorText.takeUnless { directImageDraft },
                                 onSend = ::sendMessage,
                                 onStop = ::stopSending,
+                                onWebSettingsClick = onOpenWebSettings,
                                 onModelClick = {
                                     if (modelSheetLaunchGate.tryOpen(SystemClock.elapsedRealtime())) {
                                         showModelSheet = true
@@ -2479,7 +2485,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
                                             R.string.ai_assistant_reasoning_select_model_first,
                                             Toast.LENGTH_SHORT,
                                         ).show()
-                                        !model.model.supportsReasoning() -> Toast.makeText(
+                                        !model.assistantReasoning().hasControls -> Toast.makeText(
                                             context,
                                             R.string.ai_assistant_reasoning_unsupported,
                                             Toast.LENGTH_SHORT,
@@ -2488,12 +2494,8 @@ private fun AiChatRoute(onBack: () -> Unit) {
                                     }
                                 },
                                 onMcpClick = {
-                                    if (activeAgentMode.allowsManualMcpCapabilities) {
-                                        if (internalMcpEnabled) {
-                                            showMcpCapabilitySheet = true
-                                        } else {
-                                            showInternalMcpSheet = true
-                                        }
+                                    if (activeAgentMode.allowsManualMcpCapabilities || bookSearchMode) {
+                                        showInternalMcpSheet = true
                                     }
                                 },
                                 onSuggestionClick = {
@@ -2522,7 +2524,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
                                 },
                                 onRemoveAttachment = { attachment ->
                                     inputAttachments.removeAll { it.id == attachment.id }
-                                    refreshContextUsage()
+                                    chatSession.refreshContextUsage()
                                 },
                                 onRemoveSkill = { skill ->
                                     if (skillInputPolicy.removable) {
@@ -2533,7 +2535,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
                                                 manualMcpCapabilityIds
                                             )
                                         )
-                                        refreshContextUsage()
+                                        chatSession.refreshContextUsage()
                                         persistActiveSession()
                                     }
                                     }
@@ -2541,19 +2543,94 @@ private fun AiChatRoute(onBack: () -> Unit) {
                         }
                     }
                 ) { padding ->
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().then(
+                            controlsBackdrop?.let {
+                                Modifier.ngRecordLiquidGlassBackdrop(it)
+                            } ?: Modifier
+                        )
+                    ) {
+                        if (chatBackdrop != null) {
+                            AiChatBackground(
+                                drawable = chatBackgroundDrawable,
+                                backdrop = chatBackdrop,
+                                showMask = false,
+                            )
+                        }
+                        if (search != null && searchLocation == null) {
+                            AiChatConversationSearchResults(
+                                search = search,
+                                results = searchMatches,
+                                padding = padding,
+                                backdrop = chatBackdrop,
+                                messageModelProviders = messageModelProviders,
+                                assistantAvatar = { modelIconRes ->
+                                    RikkaAssistantAvatar(
+                                        iconRes = modelIconRes,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onOpenMessage = ::locateChatSearchMatch,
+                            )
+                            return@Box
+                        }
+                        if (search != null && searchLocation != null) {
+                            LaunchedEffect(searchLocation, modeEntryConfirmation?.id) {
+                                fun targetIndex(): Int {
+                                    val index = messages.indexOfFirst { it.id == searchLocation.match.messageId }
+                                    return if (index < 0 || modeEntryConfirmation == null) index else index + 1
+                                }
+                                val index = targetIndex()
+                                if (index < 0) return@LaunchedEffect
+                                listState.scrollToItem(index)
+                                search.hasLocatedMessage = true
+                                val matchOffset = searchLocation.matchOffset.await()
+                                val layout = listState.layoutInfo
+                                val visibleHeight = layout.viewportSize.height -
+                                    layout.beforeContentPadding - layout.afterContentPadding
+                                if (matchOffset > visibleHeight * 0.58f) {
+                                    val latestIndex = targetIndex()
+                                    if (latestIndex >= 0) {
+                                        listState.scrollToItem(latestIndex, matchOffset - visibleHeight / 3)
+                                    }
+                                }
+                            }
+                        }
+                        val greetingSessionId = activeSessionId
                         RikkaChatList(
                             padding = padding,
+                            backdrop = chatBackdrop,
                             state = listState,
                             messages = messages,
+                            messageModelProviders = messageModelProviders,
                             entryInteraction = modeEntryConfirmation,
+                            bookSearchMode = bookSearchMode,
+                            bookSearchGuide = if (
+                                bookSearchMode && bookSearchHistoryRestored && messages.isEmpty() && search == null
+                            ) {
+                                {
+                                    AssistantMessageHeader(
+                                        fontWeight = FontWeight.Normal,
+                                        modelLabel = selectedModelLabel,
+                                        modelIconRes = selectedModelIconRes,
+                                    )
+                                    key(greetingSessionId) {
+                                        AiBookSearchGreetingText(bookSearchGreetingPending) {
+                                            if (activeSessionId == greetingSessionId) bookSearchGreetingPending = false
+                                        }
+                                    }
+                                }
+                            } else null,
+                            showBookSearchActions = bookSearchMode && !sending && !exportSelectionMode && search == null,
+                            bookSearchMcpEnabled = internalMcpEnabled,
+                            onBookSearchAction = ::handleBookSearchAction,
                             interactionPolicy = interactionPolicy,
-                            previewMode = previewMode,
+                            searchLocation = searchLocation,
                             onRegenerate = ::regenerateMessage,
                             onDelete = ::deleteMessage,
                             onFork = ::forkMessage,
                             onToggleFavorite = ::toggleFavorite,
-                            selectionMode = exportSelectionMode,
+                            selectionMode = exportSelectionMode && search == null,
                             selectedIds = selectedExportMessageIds.toSet(),
                             onToggleSelection = { message ->
                                 if (message.id in selectedExportMessageIds) {
@@ -2562,7 +2639,10 @@ private fun AiChatRoute(onBack: () -> Unit) {
                                     selectedExportMessageIds.add(message.id)
                                 }
                             },
-                            onExport = ::startExportSelection,
+                            onExport = { message ->
+                                chatSearch = null
+                                startExportSelection(message)
+                            },
                             onEntryInteractionSubmit = { action ->
                                 val entryAction = action.selectedValues[action.interaction.id]
                                     ?: action.prompt.substringAfter("action=", "")
@@ -2578,14 +2658,10 @@ private fun AiChatRoute(onBack: () -> Unit) {
                                 }
                             },
                             onInteractionSubmit = ::submitInteraction,
-                            onJumpToMessage = { index ->
-                                previewMode = false
-                                scope.launch {
-                                    listState.animateScrollToItem(index)
-                                }
-                            }
+                            onImagePreview = { file, generated -> imagePreview = file to generated },
+                            onImageEdit = if (showImageActions) ::continueEditingImage else null,
                         )
-                        FloatingSkillSuggestionPanel(
+                        if (search == null) FloatingSkillSuggestionPanel(
                             suggestions = skillSuggestions,
                             expanded = suggestionsExpanded,
                             onSelect = { suggestion ->
@@ -2614,7 +2690,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
         ContextUsageDialog(
             usage = contextUsage,
             compactionCount = maxOf(
-                contextCompactionCount,
+                chatSession.contextCompactionCount,
                 messages.count { it.contextCompaction != null }
             ),
             sessionUsage = messages.contextSessionUsage(),
@@ -2637,7 +2713,7 @@ private fun AiChatRoute(onBack: () -> Unit) {
                 if (inputAttachments.none { it.id == attachment.id }) {
                     inputAttachments += attachment
                 }
-                refreshContextUsage()
+                chatSession.refreshContextUsage()
                 showContextAttachmentSheet = false
             },
             onDismiss = { showContextAttachmentSheet = false }
@@ -2652,8 +2728,8 @@ private fun AiChatRoute(onBack: () -> Unit) {
     if (showSkillAttachmentSheet && skillInputPolicy.selectorVisible) {
         AiChatInputAttachmentSheet(
             title = "加载技能",
-            description = "选择新技能会替换当前技能，并持续用于当前会话。",
             emptyText = "暂无可在聊天中加载的技能",
+            centeredHeader = true,
             availableAttachments = buildAgentSkillInputAttachments(),
             loadedAttachmentIds = inputAttachments.map { it.id }.toSet(),
             onAdd = { attachment ->
@@ -2710,19 +2786,144 @@ private fun AiChatRoute(onBack: () -> Unit) {
             }
         )
     }
-    if (showMcpCapabilitySheet && activeAgentMode.allowsManualMcpCapabilities) {
-        AiChatMcpCapabilitySheet(
-            modules = McpInternalToolCatalog.modules,
-            selectedCapabilityIds = enabledMcpCapabilityIds.toSet(),
-            onSelectionChange = ::updateMcpCapabilitySelection,
-            onDismiss = { showMcpCapabilitySheet = false }
+    imagePreview?.let { (file, generated) ->
+        AiImagePreview(
+            file,
+            onDismiss = { imagePreview = null },
+            onEdit = if (generated && showImageActions) {
+                { continueEditingImage(file) }
+            } else null,
         )
     }
-    if (showReasoningSheet) {
-        AiChatReasoningSheet(
-            onChanged = { configVersion++ },
-            onDismiss = { showReasoningSheet = false },
+    if (showCodexImageSettings) {
+        NgPaneDialog(onDismissRequest = { showCodexImageSettings = false }) {
+            NgDialog(
+                title = null,
+                variant = NgDialogVariant.CLASSIC_CONFIRMATION,
+                actions = {
+                    NgDialogTextActionButton(
+                        text = stringResource(R.string.cancel),
+                        onClick = { showCodexImageSettings = false },
+                    )
+                    NgDialogTextActionButton(
+                        text = stringResource(R.string.setting),
+                        onClick = {
+                            showCodexImageSettings = false
+                            openAssistantSettings(AiConfigFragment.PAGE_PROVIDERS)
+                        },
+                    )
+                },
+            ) {
+                Text(
+                    text = stringResource(R.string.ai_image_codex_required),
+                    color = Color(NgTheme.colors.onSurfaceVariant),
+                )
+            }
+        }
+    }
+    if (showInternalMcpSheet && (activeAgentMode.allowsManualMcpCapabilities || bookSearchMode)) {
+        AiChatInternalMcpSheet(
+            enabled = internalMcpEnabled,
+            onEnabledChange = { enabled ->
+                if (AiConfig.internalMcpEnabled != enabled) {
+                    AiConfig.internalMcpEnabled = enabled
+                    configVersion++
+                }
+            },
+            modules = if (bookSearchMode) {
+                McpInternalToolCatalog.modules.mapNotNull { module ->
+                    val available = module.capabilities.filter { it.id in activeAgentMode.fixedMcpCapabilityIds }
+                    available.takeIf { it.isNotEmpty() }?.let { module.copy(capabilities = it) }
+                }
+            } else McpInternalToolCatalog.modules,
+            selectedCapabilityIds = enabledMcpCapabilityIds.toSet(),
+            onSelectionChange = ::updateMcpCapabilitySelection,
+            selectionEnabled = !bookSearchMode,
+            onDismiss = { showInternalMcpSheet = false }
         )
+    }
+    bookScopeSelection?.let { (messageId, candidate) ->
+        val media = candidate.media ?: return@let
+        val sources by produceState(initialValue = emptyList<io.legado.app.data.entities.BookSourcePart>(), media) {
+            value = withContext(Dispatchers.IO) { McpPreciseBookSearch.sourcesFor(media) }
+        }
+        val groups = remember(sources) {
+            sources.flatMap { ChangeSourceFilter.splitGroups(it.bookSourceGroup) }.distinct().sorted()
+        }
+        var query by remember(media) { mutableStateOf("") }
+        val filtered = remember(sources, query) {
+            sources.filter { it.bookSourceName.contains(query, ignoreCase = true) }
+        }
+        SearchScopeDialog(
+            groups = groups,
+            sources = filtered,
+            onSourceQueryChange = { query = it },
+            onApply = { selected ->
+                val entry = activeModeEntryContext ?: return@SearchScopeDialog
+                activeModeEntryContext = entry.copy(payload = entry.payload.deepCopy().apply {
+                    addProperty(AI_BOOK_SEARCH_SCOPE, selected.toString())
+                    if (media.sourceType == BookSourceType.audio && !selected.isAll()) {
+                        addProperty(AI_BOOK_SEARCH_AUDIO_SCOPE_MEDIA, media.name)
+                    } else {
+                        remove(AI_BOOK_SEARCH_AUDIO_SCOPE_MEDIA)
+                    }
+                })
+                bookScopeSelection = null
+                chatSession.launchBookSourceLookup(messageId, candidate)
+            },
+            onDismiss = { bookScopeSelection = null },
+        )
+    }
+    generationBlock?.let { (providerId, issue) ->
+        val needsStreaming = issue == AiModelGenerationIssue.STREAMING_REQUIRED
+        NgPaneDialog(onDismissRequest = { generationBlock = null }) {
+            NgDialog(
+                title = null,
+                variant = NgDialogVariant.CLASSIC_CONFIRMATION,
+                actions = {
+                    NgDialogTextActionButton(
+                        text = stringResource(if (needsStreaming) R.string.cancel else R.string.close),
+                        onClick = { generationBlock = null },
+                    )
+                    if (needsStreaming) {
+                        NgDialogTextActionButton(
+                            text = stringResource(R.string.ai_enable_streaming_response),
+                            onClick = {
+                                synchronized(AiProviderStore) {
+                                    val selection = AiAssistantConfigUi.selectedModel()
+                                    if (selection != null && selection.provider.id == providerId &&
+                                        selection.provider.resolveModelGenerationRoute(selection.model).issue ==
+                                        AiModelGenerationIssue.STREAMING_REQUIRED
+                                    ) {
+                                        AiProviderStore.saveProvider(selection.provider.copy(streamResponseEnabled = true))
+                                        configVersion++
+                                    }
+                                }
+                                generationBlock = null
+                            },
+                        )
+                    }
+                },
+            ) {
+                Text(
+                    text = stringResource(
+                        if (needsStreaming) R.string.ai_assistant_streaming_required
+                        else R.string.ai_model_interface_unsupported,
+                    ),
+                    color = Color(NgTheme.colors.onSurfaceVariant),
+                )
+            }
+        }
+    }
+    if (showReasoningSheet) {
+        val selectedModel = remember(configVersion) { AiAssistantConfigUi.selectedModel() }
+        if (selectedModel != null) {
+            AiChatReasoningSheet(
+                model = selectedModel,
+                onChanged = { configVersion++ },
+                onDismiss = { showReasoningSheet = false },
+            )
+        }
     }
     if (showModelSheet) {
         AiChatModelSheet(
@@ -2733,59 +2934,112 @@ private fun AiChatRoute(onBack: () -> Unit) {
             },
         )
     }
-    if (showInternalMcpSheet) {
-        AiChatInternalMcpSheet(
-            onChanged = { configVersion++ },
-            onDismiss = { showInternalMcpSheet = false },
-        )
+}
+
+@Composable
+private fun AiChatToolApprovalDialog(activity: AiChatActivity?, pending: AiChatToolApproval?) {
+    val presenter = remember { Any() }
+    val approval = pending?.takeIf { it.presenter == null || it.presenter === presenter } ?: return
+    if (activity == null || activity.isFinishing || activity.isDestroyed || approval.response.isCompleted) return
+    DisposableEffect(activity, approval) {
+        approval.presenter = presenter
+        val summaries = approval.calls.map { it.toWriteOperationSummary() }
+        val destructive = approval.calls.any { it.sideEffect == McpToolSideEffect.DESTRUCTIVE }
+        val dialog = ComponentDialog(activity)
+        fun resolve(confirmed: Boolean) {
+            approval.response.complete(confirmed)
+            dialog.dismiss()
+        }
+        val composeView = ComposeView(activity).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setContent {
+                NgAppTheme(updateSystemBars = false) {
+                    AiToolWriteConfirmationContent(
+                        summaries = summaries,
+                        destructive = destructive,
+                        onCancel = { resolve(false) },
+                        onConfirm = { resolve(true) },
+                    )
+                }
+            }
+        }
+        dialog.setContentView(composeView)
+        dialog.setOnCancelListener { resolve(false) }
+        dialog.show()
+        dialog.applyNgWindow(height = (activity.resources.displayMetrics.heightPixels * 0.62f).toInt())
+        onDispose {
+            dialog.setOnCancelListener(null)
+            dialog.dismiss()
+            if (approval.presenter === presenter) approval.presenter = null
+        }
     }
 }
 
 @Composable
 private fun AiChatStatsPage(
-    stats: AiChatStats,
+    stats: AiChatStats?,
+    loading: Boolean,
+    onRetry: () -> Unit,
     onBack: () -> Unit
 ) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item(key = "stats_header") {
-            Column {
-                Surface(
-                    onClick = onBack,
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
+    Column(Modifier.fillMaxSize()) {
+        NgFloatingTitleToolbar(
+            title = "统计",
+            onBack = onBack,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (stats != null) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Box(
-                        modifier = Modifier.size(44.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(22.dp),
-                        )
+                    item(key = "token_activity") {
+                        AiTokenActivityCard(stats.tokenActivityPerDay)
+                    }
+                    item(key = "stats_grid") {
+                        AiChatStatsGrid(stats)
                     }
                 }
-                Spacer(Modifier.height(18.dp))
-                Text(
-                    text = "统计",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
+            } else if (loading) {
+                AiStatsCardSurface(
+                    modifier = Modifier.align(Alignment.Center),
+                ) {
+                    NgDotsLoadingIndicator(Modifier.size(56.dp))
+                }
+            } else {
+                AiStatsCardSurface(
+                    modifier = Modifier.align(Alignment.Center),
+                    onClick = onRetry,
+                ) {
+                    Text(
+                        text = stringResource(R.string.load_error_retry),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
-        item(key = "token_activity") {
-            AiTokenActivityCard(stats.tokenActivityPerDay)
-        }
-        item(key = "stats_grid") {
-            AiChatStatsGrid(stats)
-        }
     }
+}
+
+@Composable
+private fun AiStatsCardSurface(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val cornerRadius = 18.dp
+    val shape = RoundedCornerShape(cornerRadius)
+    NgVisualSurface(
+        modifier = if (onClick == null) modifier else modifier.clip(shape).clickable(onClick = onClick),
+        role = NgMaterialRole.CONTENT,
+        cornerRadius = cornerRadius,
+        shape = shape,
+        style = NgGlassDefaults.neutralStyle(containerAlpha = 0.98f),
+        content = content,
+    )
 }
 
 @Composable
@@ -2802,13 +3056,7 @@ private fun AiTokenActivityCard(tokenActivityPerDay: Map<LocalDate, Long>) {
         )
     }
     val selectedBar = bars.getOrNull(selectedIndex)
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = colorResource(R.color.ng_surface_card)
-        ),
-        shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    AiStatsCardSurface(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
@@ -2837,7 +3085,7 @@ private fun AiTokenActivityCard(tokenActivityPerDay: Map<LocalDate, Long>) {
                     "${it.rangeLabel} · ${formatAiStatTokens(it.value)} Token"
                 } ?: "暂无 Token 活动",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             TokenActivityBarChart(
                 bars = bars,
@@ -2858,7 +3106,8 @@ private fun TokenActivityModeLabel(
         text = text,
         style = MaterialTheme.typography.bodySmall,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (selected) 0.90f else 0.46f),
+        color = if (selected) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
@@ -2922,7 +3171,8 @@ private fun TokenActivityBarChart(
                 Text(
                     text = bar.axisLabel,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (selected) 0.90f else 0.56f),
+                    color = if (selected) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     softWrap = false
                 )
@@ -2957,13 +3207,13 @@ private fun AiChatStatsGrid(stats: AiChatStats) {
         ) {
             AiStatCard(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.Psychology,
+                icon = Icons.Rounded.ArrowUpward,
                 label = "输入 Token",
                 value = formatAiStatTokens(stats.totalPromptTokens)
             )
             AiStatCard(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.Psychology,
+                icon = Icons.Rounded.ArrowDownward,
                 label = "输出 Token",
                 value = formatAiStatTokens(stats.totalCompletionTokens)
             )
@@ -2987,14 +3237,7 @@ private fun AiStatCard(
     label: String,
     value: String
 ) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = colorResource(R.color.ng_surface_card),
-            contentColor = colorResource(R.color.ng_on_surface)
-        ),
-        shape = RoundedCornerShape(18.dp)
-    ) {
+    AiStatsCardSurface(modifier = modifier) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -3027,6 +3270,99 @@ private fun AiStatCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AiChatToolbar(
+    title: String,
+    modelLabel: String,
+    bookSearchMode: Boolean,
+    backdrop: NgLiquidGlassBackdrop?,
+    onOpenMenu: () -> Unit,
+    onOpenSearch: () -> Unit,
+    onNewChat: () -> Unit,
+) {
+    val iconSize = if (backdrop != null) Modifier.size(20.dp) else Modifier
+    val navigation = @Composable {
+        IconButton(onClick = onOpenMenu) {
+            Icon(Icons.Rounded.Menu, contentDescription = "Menu", modifier = iconSize)
+        }
+    }
+    val titleContent = @Composable {
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "默认助手 / $modelLabel",
+                color = LocalContentColor.current.copy(alpha = 0.62f),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (bookSearchMode) FontWeight.Normal else null,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+    val actions: @Composable RowScope.() -> Unit = {
+        IconButton(onClick = onOpenSearch) {
+            Icon(
+                painter = painterResource(R.drawable.ic_search),
+                contentDescription = stringResource(R.string.ai_chat_find_hint),
+                modifier = Modifier.size(24.dp),
+            )
+        }
+        IconButton(onClick = onNewChat) {
+            Icon(
+                imageVector = if (backdrop != null) Icons.Rounded.Add else Icons.Rounded.AddComment,
+                contentDescription = "New chat",
+                modifier = iconSize,
+            )
+        }
+    }
+
+    if (backdrop == null) {
+        Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.86f)) {
+            TopAppBar(
+                modifier = Modifier.statusBarsPadding(),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                navigationIcon = navigation,
+                title = titleContent,
+                actions = actions,
+            )
+        }
+    } else {
+        AiChatFloatingToolbarSurface(backdrop) {
+            navigation()
+            Box(Modifier.weight(1f).padding(end = 4.dp)) { titleContent() }
+            actions()
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.AiChatBackground(
+    drawable: Drawable?,
+    backdrop: NgLiquidGlassBackdrop?,
+    showMask: Boolean,
+) {
+    Box(
+        modifier = Modifier
+            .matchParentSize()
+            .then(backdrop?.let { Modifier.ngRecordLiquidGlassBackdrop(it) } ?: Modifier)
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        NgThemeGradientBackground(modifier = Modifier.fillMaxSize())
+        if (drawable != null) {
+            ChatBackgroundImage(drawable = drawable, modifier = Modifier.fillMaxSize())
+        }
+    }
+    NgEffectThemeBackground(modifier = Modifier.fillMaxSize())
+    if (showMask) AiChatBackgroundMask()
+}
+
 @Composable
 private fun AiChatBackgroundMask() {
     Box(
@@ -3047,122 +3383,91 @@ private fun AiChatBackgroundMask() {
 @Composable
 private fun GlobalMessageSearchPage(
     query: String,
+    backdrop: NgLiquidGlassBackdrop?,
     onQueryChange: (String) -> Unit,
     sessions: List<AiChatSessionSnapshot>,
     activeSessionId: String?,
     currentMessages: List<ChatUiMessage>,
     onBack: () -> Unit,
-    onOpenResult: (GlobalMessageSearchResult) -> Unit
+    onOpenResult: (GlobalMessageSearchResult) -> Unit,
 ) {
     var submittedQuery by remember { mutableStateOf("") }
-    LaunchedEffect(query) {
-        if (query.isBlank()) {
-            submittedQuery = ""
+    val keyword = remember(submittedQuery) {
+        submittedQuery.takeIf { it.isNotEmpty() }?.let(::AiChatSearchQuery)
+    }
+    val context = LocalContext.current.applicationContext
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val completedSearch by produceState<Pair<AiChatSearchQuery, List<GlobalMessageSearchResult>>?>(
+        null, keyword, sessions, activeSessionId, currentMessages, context,
+    ) {
+        if (keyword == null) {
+            value = null
+            return@produceState
         }
+        val markdown = aiChatSearchMarkdown(context)
+        snapshotFlow { sessions.toList() to currentMessages.toList() }
+            .collectLatest { (savedSessions, messages) ->
+                val matches = withContext(Dispatchers.Default) {
+                    buildGlobalMessageSearchResults(keyword, savedSessions, activeSessionId, messages, markdown)
+                }
+                value = keyword to matches
+            }
     }
-    val results = remember(submittedQuery, sessions, activeSessionId, currentMessages) {
-        buildGlobalMessageSearchResults(
-            query = submittedQuery,
-            sessions = sessions,
-            activeSessionId = activeSessionId,
-            currentMessages = currentMessages
-        )
-    }
+    val results = completedSearch?.takeIf { it.first === keyword }?.second
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .navigationBarsPadding()
+            .imePadding()
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
-            ) {
-                Box(
-                    modifier = Modifier.size(44.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
-            ) {
-                Box(
-                    modifier = Modifier.size(44.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    IconButton(
-                        enabled = query.isNotBlank(),
-                        onClick = {
-                            onQueryChange("")
-                            submittedQuery = ""
-                        }
-                    ) {
-                        Icon(
-                            Icons.Rounded.Refresh,
-                            contentDescription = "Clear search",
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(18.dp))
-        Text(
-            text = "搜索消息",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(14.dp))
-        NgSearchBar(
+        NgFloatingSearchToolbar(
             query = query,
-            onQueryChange = onQueryChange,
-            hint = "搜索消息内容…",
-            onSearch = { submittedQuery = it.trim() },
+            onQueryChange = {
+                onQueryChange(it)
+                if (it.isBlank()) submittedQuery = ""
+            },
+            hint = stringResource(R.string.ai_chat_global_search_hint),
+            onBack = onBack,
+            onSearch = {
+                submittedQuery = it.trim()
+                focusManager.clearFocus()
+                keyboard?.hide()
+            },
+            modifier = Modifier.padding(horizontal = 16.dp),
         )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            if (submittedQuery.isNotBlank()) {
-                if (results.isEmpty()) {
-                    Text(
-                        text = "没有找到相关消息",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+        if (keyword != null && results != null) {
+            if (results.isEmpty()) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        contentColor = colorResource(R.color.ng_on_surface),
                     ) {
-                        items(
-                            items = results,
-                            key = { "${it.sessionId.orEmpty()}:${it.messageId}:${it.messageIndex}" }
-                        ) { result ->
-                            GlobalSearchResultRow(
-                                result = result,
-                                query = submittedQuery,
-                                onClick = { onOpenResult(result) }
-                            )
-                        }
+                        Text(
+                            text = stringResource(R.string.ai_chat_find_empty),
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(
+                        items = results,
+                        key = { "${it.sessionId.orEmpty()}:${it.messageId}:${it.messageIndex}" },
+                    ) { result ->
+                        GlobalSearchResultRow(
+                            result = result,
+                            query = keyword,
+                            backdrop = backdrop,
+                            onClick = { onOpenResult(result) },
+                        )
                     }
                 }
             }
@@ -3173,44 +3478,49 @@ private fun GlobalMessageSearchPage(
 @Composable
 private fun GlobalSearchResultRow(
     result: GlobalMessageSearchResult,
-    query: String,
-    onClick: () -> Unit
+    query: AiChatSearchQuery,
+    backdrop: NgLiquidGlassBackdrop?,
+    onClick: () -> Unit,
 ) {
-    val highlightColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f)
-    val snippet = remember(result.snippet, query, highlightColor) {
-        buildHighlightedText(
-            text = result.snippet,
-            query = query,
-            highlightColor = highlightColor
-        )
+    val highlight = aiChatSearchHighlightStyle()
+    val snippet = remember(result.snippet, query, highlight) {
+        query.highlight(AnnotatedString(result.snippet), highlight)
     }
-    Surface(
-        onClick = onClick,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f),
-        shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp)
+    val time = remember(result.updatedAt) { formatChatSearchTime(result.updatedAt) }
+    AiChatSearchResultSurface(backdrop = backdrop, onClick = onClick) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = result.sessionTitle.ifBlank { "新聊天" },
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = snippet,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "${result.roleLabel} · ${formatChatSearchTime(result.updatedAt)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    text = result.sessionTitle.ifBlank { "新聊天" },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = snippet,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val role = if (result.isUser) "用户" else "AI"
+                Text(
+                    text = "$role · $time",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -3218,6 +3528,7 @@ private fun GlobalSearchResultRow(
 
 @Composable
 private fun RikkaChatDrawer(
+    wallpaperBackdrop: NgLiquidGlassBackdrop?,
     selectedIndex: Int,
     historyGroups: List<DrawerHistoryGroup>,
     historyLoaded: Boolean,
@@ -3241,14 +3552,8 @@ private fun RikkaChatDrawer(
     onOpenSettings: () -> Unit,
     onNewChat: () -> Unit
 ) {
-    val drawerWidth = LocalConfiguration.current.screenWidthDp.dp * AI_CHAT_DRAWER_WIDTH_RATIO
-    NgSideDrawerSurface(
-        modifier = Modifier
-            .fillMaxHeight()
-            .width(drawerWidth),
-        shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
-        contentCardStyle = NgDrawerContentCardStyle.ADAPTIVE,
-    ) {
+    ChatDrawerSurface(wallpaperBackdrop) {
+        val standardStyle = useStandardChatDrawerStyle
         val drawerContentColor = drawerPrimaryContentColor()
         CompositionLocalProvider(LocalContentColor provides drawerContentColor) {
             Column(
@@ -3256,31 +3561,40 @@ private fun RikkaChatDrawer(
                     .fillMaxSize()
                     .statusBarsPadding()
                     .navigationBarsPadding()
-                    .padding(horizontal = 6.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .padding(
+                        horizontal = if (standardStyle) 13.dp else 6.dp,
+                        vertical = if (standardStyle) 12.dp else 8.dp,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(if (standardStyle) 4.dp else 6.dp),
             ) {
-                Spacer(Modifier.height(8.dp))
+                if (!standardStyle) Spacer(Modifier.height(8.dp))
                 DrawerActionRow(
                     icon = Icons.Rounded.Search,
+                    standardIconRes = R.drawable.ic_search,
                     label = "搜索聊天",
                     selected = selectedIndex == 1,
                     onClick = { onSelect(1) },
                 )
                 DrawerActionRow(
                     icon = Icons.Rounded.History,
+                    standardIconRes = R.drawable.ic_mingcute_time_line,
                     label = "聊天历史",
                     selected = selectedIndex == 2,
                     onClick = { onSelect(2) },
                 )
                 DrawerActionRow(
                     icon = Icons.Rounded.Favorite,
+                    standardIconRes = R.drawable.ic_star,
                     label = "收藏内容",
                     selected = selectedIndex == 3,
                     onClick = { onSelect(3) },
                 )
                 HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                    color = drawerContentColor.copy(alpha = 0.35f),
+                    modifier = Modifier.padding(
+                        horizontal = 6.dp,
+                        vertical = if (standardStyle) 8.dp else 6.dp,
+                    ),
+                    color = if (standardStyle) drawerDividerColor() else drawerContentColor.copy(alpha = 0.35f),
                 )
                 Box(modifier = Modifier.weight(1f)) {
                     when (selectedIndex) {
@@ -3320,73 +3634,122 @@ private fun RikkaChatDrawer(
 }
 
 @Composable
+private fun ChatDrawerSurface(
+    wallpaperBackdrop: NgLiquidGlassBackdrop?,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val drawerWidth = LocalConfiguration.current.screenWidthDp.dp * AI_CHAT_DRAWER_WIDTH_RATIO
+    val surface: @Composable () -> Unit = {
+        NgSideDrawerSurface(
+            modifier = Modifier.fillMaxHeight().width(drawerWidth),
+            shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
+            contentCardStyle = NgDrawerContentCardStyle.ADAPTIVE,
+            role = if (wallpaperBackdrop != null) NgMaterialRole.CONTROL else NgMaterialRole.SOFT_SURFACE,
+            content = content,
+        )
+    }
+    if (wallpaperBackdrop != null) {
+        NgLiquidGlassBackdropProvider(wallpaperBackdrop, content = surface)
+    } else {
+        surface()
+    }
+}
+
+@Composable
 private fun DrawerBottomActions(
     onOpenStats: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    Row(
+    val showLabels = useStandardChatDrawerStyle
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = if (showLabels) 6.dp else 10.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        DrawerBottomActionButton(
-            iconRes = R.drawable.ic_solar_chart_bold,
-            contentDescription = "统计",
-            onClick = onOpenStats
-        )
-        Spacer(Modifier.width(14.dp))
-        DrawerBottomActionButton(
-            imageVector = Icons.Rounded.Settings,
-            contentDescription = "设置",
-            onClick = onOpenSettings
-        )
+        if (showLabels) HorizontalDivider(color = drawerDividerColor())
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (showLabels) Arrangement.spacedBy(7.dp) else Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DrawerBottomActionButton(
+                label = "统计",
+                showLabel = showLabels,
+                painter = painterResource(R.drawable.ic_solar_chart_bold),
+                onClick = onOpenStats,
+                modifier = if (showLabels) Modifier.weight(1f) else Modifier,
+            )
+            if (!showLabels) Spacer(Modifier.width(14.dp))
+            DrawerBottomActionButton(
+                label = "设置",
+                showLabel = showLabels,
+                painter = if (showLabels) painterResource(R.drawable.ic_book_info_menu_settings)
+                    else rememberVectorPainter(Icons.Rounded.Settings),
+                onClick = onOpenSettings,
+                modifier = if (showLabels) Modifier.weight(1f) else Modifier,
+            )
+        }
     }
 }
 
 @Composable
 private fun DrawerBottomActionButton(
-    contentDescription: String,
+    label: String,
+    showLabel: Boolean,
+    painter: Painter,
     onClick: () -> Unit,
-    @DrawableRes iconRes: Int? = null,
-    imageVector: ImageVector? = null
+    modifier: Modifier = Modifier,
 ) {
+    val contentColor = if (showLabel) drawerSecondaryContentColor() else drawerPrimaryContentColor()
     Surface(
         onClick = onClick,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f),
-        modifier = Modifier.size(48.dp)
+        shape = if (showLabel) RoundedCornerShape(12.dp) else CircleShape,
+        color = if (showLabel) MaterialTheme.colorScheme.surface.copy(alpha = 0.52f)
+            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f),
+        modifier = if (showLabel) modifier.heightIn(min = 40.dp) else modifier.size(48.dp),
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            if (imageVector != null) {
-                Icon(
-                    imageVector = imageVector,
-                    contentDescription = contentDescription,
-                    modifier = Modifier.size(24.dp),
-                    tint = drawerPrimaryContentColor(),
-                )
-            } else if (iconRes != null) {
-                Icon(
-                    painter = painterResource(iconRes),
-                    contentDescription = contentDescription,
-                    modifier = Modifier.size(24.dp),
-                    tint = drawerPrimaryContentColor(),
+        Row(
+            modifier = if (showLabel) Modifier.padding(horizontal = 7.dp, vertical = 6.dp) else Modifier,
+            horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painter,
+                contentDescription = if (showLabel) null else label,
+                modifier = Modifier.size(if (showLabel) 22.dp else 24.dp),
+                tint = contentColor,
+            )
+            if (showLabel) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 13.sp,
+                    color = contentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
     }
 }
 
-@Composable
-private fun drawerPrimaryContentColor(): Color {
-    return ngDrawerPrimaryTextColor(Color(NgTheme.colors.primary))
-}
+private val useStandardChatDrawerStyle: Boolean
+    @Composable get() = !NgTheme.snapshot.isEInk
 
 @Composable
-private fun drawerSecondaryContentColor(): Color {
-    return ngDrawerSecondaryTextColor(Color(NgTheme.colors.primary).copy(alpha = 0.78f))
-}
+private fun drawerPrimaryContentColor(): Color = ngDrawerPrimaryTextColor(
+    Color(if (useStandardChatDrawerStyle) NgTheme.colors.onSurface else NgTheme.colors.primary),
+)
+
+@Composable
+private fun drawerSecondaryContentColor(): Color = ngDrawerSecondaryTextColor(
+    if (useStandardChatDrawerStyle) Color(NgTheme.colors.onSurfaceVariant)
+    else Color(NgTheme.colors.primary).copy(alpha = 0.78f),
+)
+
+@Composable
+private fun drawerDividerColor(): Color = drawerSecondaryContentColor().copy(alpha = 0.20f)
 
 @Composable
 private fun drawerAccentContentColor(enabled: Boolean = true): Color {
@@ -3417,6 +3780,7 @@ private fun DrawerHistoryContent(
         mutableStateListOf(*groupTitles.toTypedArray())
     }
     val totalCount = groups.sumOf { it.items.size }
+    val sectionTitle = if (useStandardChatDrawerStyle) "会话" else "聊天历史"
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 10.dp),
@@ -3433,7 +3797,7 @@ private fun DrawerHistoryContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DrawerSectionTitle(
-                        text = if (manageMode) "聊天历史 · 已选 ${selectedIds.size}" else "聊天历史",
+                        text = if (manageMode) "$sectionTitle · 已选 ${selectedIds.size}" else sectionTitle,
                         modifier = Modifier.weight(1f)
                     )
                     DrawerPlainTextButton(
@@ -3533,16 +3897,22 @@ private fun DrawerHistoryGroupHeader(
     onPinGroup: () -> Unit,
     onDeleteGroup: () -> Unit
 ) {
+    val standardStyle = useStandardChatDrawerStyle
     val primaryContentColor = drawerPrimaryContentColor()
     val secondaryContentColor = drawerSecondaryContentColor()
     Surface(
         onClick = onToggle,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.22f),
+        color = if (standardStyle) Color.Transparent else MaterialTheme.colorScheme.surface.copy(alpha = 0.22f),
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(start = 8.dp, top = 5.dp, end = 2.dp, bottom = 5.dp),
+            modifier = Modifier.padding(
+                start = if (standardStyle) 10.dp else 8.dp,
+                top = if (standardStyle) 4.dp else 5.dp,
+                end = 2.dp,
+                bottom = if (standardStyle) 4.dp else 5.dp,
+            ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -3552,9 +3922,10 @@ private fun DrawerHistoryGroupHeader(
                     Icons.AutoMirrored.Rounded.KeyboardArrowRight
                 },
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(if (standardStyle) 18.dp else 20.dp),
                 tint = primaryContentColor
             )
+            if (standardStyle) Spacer(Modifier.width(6.dp))
             Text(
                 text = group.title,
                 modifier = Modifier.weight(1f),
@@ -3569,6 +3940,7 @@ private fun DrawerHistoryGroupHeader(
                 color = secondaryContentColor,
                 style = MaterialTheme.typography.bodySmall
             )
+            if (standardStyle) Spacer(Modifier.width(4.dp))
             DrawerGroupMoreMenu(
                 onPinGroup = onPinGroup,
                 onDeleteGroup = onDeleteGroup
@@ -3584,14 +3956,15 @@ private fun DrawerPlainTextButton(
     onClick: () -> Unit
 ) {
     val textColor = drawerAccentContentColor(enabled)
+    val standardStyle = useStandardChatDrawerStyle
     Text(
         text = text,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 3.dp),
+            .padding(horizontal = if (standardStyle) 9.dp else 6.dp, vertical = 3.dp),
         color = textColor,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = if (standardStyle) FontWeight.Medium else FontWeight.SemiBold,
         style = MaterialTheme.typography.bodySmall,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis
@@ -3642,7 +4015,8 @@ private fun DrawerFavoriteContent(
                                 text = item.title,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = drawerAccentContentColor(),
+                                color = if (useStandardChatDrawerStyle) drawerPrimaryContentColor()
+                                    else drawerAccentContentColor(),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -3670,43 +4044,50 @@ private fun DrawerSectionTitle(
     text: String,
     modifier: Modifier = Modifier
 ) {
+    val standardStyle = useStandardChatDrawerStyle
     Text(
         text = text,
-        color = drawerAccentContentColor(),
+        color = if (standardStyle) drawerSecondaryContentColor() else drawerAccentContentColor(),
         fontWeight = FontWeight.SemiBold,
         style = MaterialTheme.typography.bodySmall,
-        modifier = modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+        modifier = modifier.padding(horizontal = if (standardStyle) 11.dp else 6.dp, vertical = 3.dp),
     )
 }
 
 @Composable
 private fun DrawerActionRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
+    @DrawableRes standardIconRes: Int,
     label: String,
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val contentColor = drawerPrimaryContentColor()
+    val standardStyle = useStandardChatDrawerStyle
+    val contentColor = if (standardStyle && selected) drawerAccentContentColor() else drawerPrimaryContentColor()
+    val selectedColor = if (standardStyle) drawerAccentContentColor().copy(alpha = 0.16f)
+        else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
     Surface(
         onClick = onClick,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
-        shape = RoundedCornerShape(18.dp),
+        color = if (selected) selectedColor else Color.Transparent,
+        shape = RoundedCornerShape(if (standardStyle) 12.dp else 18.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = if (standardStyle) 8.dp else 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
-                icon,
+                painter = if (standardStyle) painterResource(standardIconRes) else rememberVectorPainter(icon),
                 contentDescription = null,
                 modifier = Modifier.size(22.dp),
-                tint = contentColor
+                tint = if (standardStyle && !selected) drawerSecondaryContentColor() else contentColor,
             )
             Text(
                 text = label,
-                style = MaterialTheme.typography.bodyMedium,
+                style = if (standardStyle) MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp)
+                    else MaterialTheme.typography.bodyMedium,
+                fontWeight = if (standardStyle && selected) FontWeight.SemiBold else null,
                 color = contentColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -3743,12 +4124,16 @@ private fun DrawerConversationRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (manageMode) {
-                Checkbox(
-                    checked = checked,
-                    onCheckedChange = { onClick() },
+                NgCircularSelectionIndicator(
+                    state = if (checked) ToggleableState.On else ToggleableState.Off,
                     modifier = Modifier
                         .padding(end = 4.dp)
                         .size(32.dp)
+                        .toggleable(
+                            value = checked,
+                            role = Role.Checkbox,
+                            onValueChange = { onClick() },
+                        ),
                 )
             }
             Column(
@@ -3788,14 +4173,15 @@ private fun DrawerMoreMenu(
     onDelete: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val contentColor = drawerPrimaryContentColor()
+    val standardStyle = useStandardChatDrawerStyle
+    val contentColor = if (standardStyle) drawerSecondaryContentColor() else drawerPrimaryContentColor()
     Box {
         IconButton(
             onClick = { expanded = true },
             modifier = Modifier.size(32.dp)
         ) {
             Icon(
-                imageVector = Icons.Rounded.MoreHoriz,
+                imageVector = if (standardStyle) Icons.Rounded.MoreVert else Icons.Rounded.MoreHoriz,
                 contentDescription = "更多",
                 modifier = Modifier.size(20.dp),
                 tint = contentColor
@@ -3834,14 +4220,15 @@ private fun DrawerGroupMoreMenu(
     onDeleteGroup: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val contentColor = drawerPrimaryContentColor()
+    val standardStyle = useStandardChatDrawerStyle
+    val contentColor = if (standardStyle) drawerSecondaryContentColor() else drawerPrimaryContentColor()
     Box {
         IconButton(
             onClick = { expanded = true },
-            modifier = Modifier.size(30.dp)
+            modifier = Modifier.size(if (standardStyle) 36.dp else 30.dp)
         ) {
             Icon(
-                imageVector = Icons.Rounded.MoreHoriz,
+                imageVector = if (standardStyle) Icons.Rounded.MoreVert else Icons.Rounded.MoreHoriz,
                 contentDescription = "分组操作",
                 modifier = Modifier.size(18.dp),
                 tint = contentColor
@@ -3877,11 +4264,18 @@ private fun DrawerGroupMoreMenu(
 @Composable
 private fun RikkaChatList(
     padding: PaddingValues,
+    backdrop: NgLiquidGlassBackdrop?,
     state: LazyListState,
     messages: List<ChatUiMessage>,
+    messageModelProviders: Map<String, AiProviderSetting>,
     entryInteraction: AiChatInteraction?,
+    bookSearchMode: Boolean,
+    bookSearchGuide: (@Composable () -> Unit)?,
+    showBookSearchActions: Boolean,
+    bookSearchMcpEnabled: Boolean,
+    onBookSearchAction: (String, AiBookSearchAction) -> Unit,
     interactionPolicy: AiChatInteractionPolicyContract?,
-    previewMode: Boolean,
+    searchLocation: AiChatSearchLocation?,
     onRegenerate: (ChatUiMessage) -> Unit,
     onDelete: (ChatUiMessage) -> Unit,
     onFork: (ChatUiMessage) -> Unit,
@@ -3892,162 +4286,236 @@ private fun RikkaChatList(
     onExport: (ChatUiMessage) -> Unit,
     onEntryInteractionSubmit: (AiChatInteractionAction) -> Unit,
     onInteractionSubmit: (String, AiChatInteractionAction) -> Unit,
-    onJumpToMessage: (Int) -> Unit
+    onImagePreview: (File, Boolean) -> Unit,
+    onImageEdit: ((File) -> Unit)?,
 ) {
-    if (previewMode) {
-        RikkaChatSearchPreview(
-            padding = padding,
-            messages = messages,
-            onJumpToMessage = onJumpToMessage
+    val horizontalPadding = if (backdrop == null) 16.dp else AiChatHorizontalPadding
+    val selectionStartReduction = if (selectionMode) 8.dp else 0.dp
+    // Keep scrolling messages inside the rounded outer edges of the floating controls.
+    val viewportInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical)
+        .add(
+            WindowInsets(
+                top = AiChatToolbarTopPadding + AiChatToolbarCornerRadius,
+                bottom = if (searchLocation == null) {
+                    AiChatComposerBottomPadding + AiChatComposerCornerRadius
+                } else 0.dp,
+            ),
         )
-        return
+    val listPadding = if (backdrop == null) {
+        PaddingValues(
+            start = horizontalPadding - selectionStartReduction,
+            top = padding.calculateTopPadding() + 10.dp,
+            end = horizontalPadding,
+            bottom = padding.calculateBottomPadding() + 18.dp
+        )
+    } else {
+        val viewportPadding = viewportInsets.asPaddingValues()
+        PaddingValues(
+            start = horizontalPadding - selectionStartReduction,
+            top = (padding.calculateTopPadding() - viewportPadding.calculateTopPadding())
+                .coerceAtLeast(0.dp) + 12.dp,
+            end = horizontalPadding,
+            bottom = (padding.calculateBottomPadding() - viewportPadding.calculateBottomPadding())
+                .coerceAtLeast(0.dp) + 12.dp,
+        )
     }
-
     LazyColumn(
         state = state,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            top = padding.calculateTopPadding() + 10.dp,
-            end = 16.dp,
-            bottom = padding.calculateBottomPadding() + 18.dp
+        modifier = Modifier.fillMaxSize().then(
+            when {
+                backdrop != null -> Modifier.windowInsetsPadding(viewportInsets)
+                searchLocation != null -> Modifier.navigationBarsPadding().imePadding()
+                else -> Modifier
+            }
         ),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = listPadding,
+        verticalArrangement = Arrangement.spacedBy(if (backdrop == null) 16.dp else 12.dp),
     ) {
+        if (bookSearchGuide != null) {
+            item(key = "book-search-guide") {
+                AiChatMessageSurface(isUser = false, backdrop = backdrop, actionsMenu = null) {
+                    bookSearchGuide()
+                }
+            }
+        }
         entryInteraction?.let { interaction ->
             item(key = "mode-entry-${interaction.id}") {
-                ChatInteractionBlock(
-                    interaction = interaction,
-                    resolvedLabel = null,
-                    onSubmit = onEntryInteractionSubmit
-                )
+                Box(Modifier.padding(start = selectionStartReduction)) {
+                    ChatInteractionBlock(
+                        interaction = interaction,
+                        resolvedLabel = null,
+                        onSubmit = onEntryInteractionSubmit
+                    )
+                }
             }
         }
         items(messages, key = { it.id }) { message ->
-            if (selectionMode && !message.loading) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Checkbox(
-                        checked = message.id in selectedIds,
-                        onCheckedChange = { onToggleSelection(message) },
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                    Box(modifier = Modifier.weight(1f)) {
-                        RikkaMessageItem(
-                            message = message,
-                            interactionPolicy = interactionPolicy,
-                            onRegenerate = { onRegenerate(message) },
-                            onDelete = { onDelete(message) },
-                            onFork = { onFork(message) },
-                            onToggleFavorite = { onToggleFavorite(message) },
-                            onExport = { onExport(message) },
-                            onInteractionSubmit = onInteractionSubmit
-                        )
-                    }
-                }
-            } else {
+            val messageLocation = searchLocation?.takeIf { it.match.messageId == message.id }
+            val renderMessage: @Composable () -> Unit = {
                 RikkaMessageItem(
                     message = message,
+                    backdrop = backdrop,
+                    messageModelProviders = messageModelProviders,
+                    assistantLabelWeight = if (bookSearchMode) FontWeight.Normal else FontWeight.SemiBold,
                     interactionPolicy = interactionPolicy,
+                    searchLocation = messageLocation,
                     onRegenerate = { onRegenerate(message) },
                     onDelete = { onDelete(message) },
                     onFork = { onFork(message) },
                     onToggleFavorite = { onToggleFavorite(message) },
                     onExport = { onExport(message) },
-                    onInteractionSubmit = onInteractionSubmit
+                    onInteractionSubmit = onInteractionSubmit,
+                    onImagePreview = onImagePreview,
+                    onImageEdit = onImageEdit,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun RikkaChatSearchPreview(
-    padding: PaddingValues,
-    messages: List<ChatUiMessage>,
-    onJumpToMessage: (Int) -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    val previewItems = messages
-        .mapIndexed { index, message -> ChatPreviewItem(index, message) }
-        .filter { (_, message) ->
-            !message.loading &&
-                message.content.isNotBlank() &&
-                (searchQuery.isBlank() || message.content.contains(searchQuery, ignoreCase = true))
-        }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(
-                top = padding.calculateTopPadding() + 8.dp,
-                bottom = padding.calculateBottomPadding()
-            )
-    ) {
-        NgSearchBar(
-            query = searchQuery,
-            onQueryChange = { searchQuery = it },
-            hint = "搜索",
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        )
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(previewItems, key = { it.message.id }) { item ->
-                MessagePreviewRow(
-                    item = item,
-                    searchQuery = searchQuery,
-                    onClick = { onJumpToMessage(item.originalIndex) }
-                )
+            val messageContent: @Composable () -> Unit = {
+                val bookSearch = message.bookSearch
+                if (showBookSearchActions && bookSearch != null) {
+                    Column {
+                        renderMessage()
+                        AiBookSearchReplyContent(bookSearch, actionsEnabled = true, mcpEnabled = bookSearchMcpEnabled) {
+                            onBookSearchAction(message.id, it)
+                        }
+                    }
+                } else {
+                    renderMessage()
+                }
             }
-        }
-    }
-}
-
-@Composable
-private fun MessagePreviewRow(
-    item: ChatPreviewItem,
-    searchQuery: String,
-    onClick: () -> Unit
-) {
-    val isUser = item.message.role == ChatRole.USER
-    val snippet = remember(item.message.content, searchQuery) {
-        extractMatchingSnippet(item.message.content.trim().ifBlank { "[...]" }, searchQuery)
-    }
-    val highlightedText = remember(snippet, searchQuery) {
-        buildHighlightedText(
-            text = snippet,
-            query = searchQuery,
-            highlightColor = Color(0xFFE8DDFF)
-        )
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
-    ) {
-        Surface(
-            onClick = onClick,
-            modifier = Modifier.widthIn(max = 340.dp),
-            shape = RoundedCornerShape(14.dp),
-            color = if (isUser) {
-                MaterialTheme.colorScheme.primaryContainer
+            if (selectionMode && !message.loading) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    ExportMessageCheckbox(
+                        checked = message.id in selectedIds,
+                        onToggle = { onToggleSelection(message) },
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Box(modifier = Modifier.weight(1f)) {
+                        messageContent()
+                    }
+                }
+            } else if (messageLocation != null) {
+                Box(Modifier.fillMaxWidth().onGloballyPositioned(messageLocation::recordMessage)) {
+                    messageContent()
+                }
+            } else if (selectionMode) {
+                Box(Modifier.padding(start = selectionStartReduction)) { messageContent() }
             } else {
-                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+                messageContent()
             }
-        ) {
-            Text(
-                text = highlightedText,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        }
+    }
+}
+
+@Composable
+private fun ExportMessageCheckbox(
+    checked: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    NgCircularSelectionIndicator(
+        state = if (checked) ToggleableState.On else ToggleableState.Off,
+        modifier = modifier
+            .size(48.dp)
+            .toggleable(value = checked, role = Role.Checkbox, onValueChange = { onToggle() })
+            .semantics { contentDescription = "选择消息" },
+    )
+}
+
+private data class ChatSearchSource(
+    val id: String,
+    val isUser: Boolean,
+    val content: String,
+    val providerId: String? = null,
+    val modelId: String? = null,
+)
+
+@Composable
+private fun rememberChatSearchMatches(
+    search: AiChatConversationSearchState,
+    messages: List<ChatUiMessage>,
+): AiChatSearchMatches? {
+    val context = LocalContext.current.applicationContext
+    val matches by produceState<AiChatSearchMatches?>(null, search, context) {
+        val parsedMessages = mutableMapOf<ChatSearchSource, List<Pair<AiChatSearchPart, String>>>()
+        val markdown = aiChatSearchMarkdown(context)
+        snapshotFlow {
+            val query = search.query.trim()
+            val sources = if (query.isEmpty()) emptyList() else messages.mapNotNull { message ->
+                if (message.loading || message.contextCompaction != null || message.content.isBlank()) {
+                    null
+                } else {
+                    ChatSearchSource(
+                        message.id, message.role == ChatRole.USER, message.content,
+                        message.usageProviderId, message.usageModelId,
+                    )
+                }
+            }
+            query to sources
+        }.collectLatest { (query, sources) ->
+            value = if (query.isEmpty()) null else withContext(Dispatchers.Default) {
+                parsedMessages.keys.retainAll(sources.toSet())
+                val keyword = AiChatSearchQuery(query)
+                val results = sources.mapNotNull { source ->
+                    ensureActive()
+                    val parts = parsedMessages.getOrPut(source) { source.searchableParts(markdown) }
+                    parts.firstNotNullOfOrNull { (part, text) ->
+                        val match = keyword.findIn(text) ?: return@firstNotNullOfOrNull null
+                        AiChatSearchMatch(
+                            messageId = source.id,
+                            isUser = source.isUser,
+                            part = part,
+                            excerpt = keyword.excerpt(text, match.range),
+                            providerId = source.providerId,
+                            modelId = source.modelId,
+                        )
+                    }
+                }
+                AiChatSearchMatches(keyword, results)
+            }
+        }
+    }
+    return matches?.takeIf { it.query.text == search.query.trim() }
+}
+
+// Render the same text as the message view without binding images to a View.
+internal fun aiChatSearchMarkdown(context: Context): Markwon = Markwon.builder(context)
+    .usePlugin(HtmlPlugin.create())
+    .usePlugin(TablePlugin.create(context))
+    .build()
+
+private fun AiChatInteractionRender.displayContent(original: String): String =
+    if (interactions.isNotEmpty()) content else content.ifBlank { original }
+
+private fun ChatSearchSource.searchableParts(markdown: Markwon): List<Pair<AiChatSearchPart, String>> {
+    if (isUser) return listOf(AiChatSearchPart(0) to content)
+    val display = AiChatInteractionParser.parse(content).displayContent(content)
+    fun plain(text: String): String = markdown.toMarkdown(normalizeAiChatMarkdown(text)).toString()
+    return buildList {
+        splitMarkdownBlocks(display).forEachIndexed { blockIndex, block ->
+            val part = AiChatSearchPart(blockIndex)
+            when (block) {
+                is ChatMarkdownBlock.Text -> add(part to plain(block.value))
+                is ChatMarkdownBlock.Code -> {
+                    add(part to block.language.ifBlank { "text" })
+                    add(part.copy(index = 1) to block.code)
+                }
+                is ChatMarkdownBlock.Callout -> {
+                    add(part to block.callout.displayTitle())
+                    add(part.copy(index = 1) to plain(block.callout.body))
+                }
+                is ChatMarkdownBlock.Table -> {
+                    val columns = block.table.headers.size
+                    (listOf(block.table.headers) + block.table.rows).forEachIndexed { rowIndex, row ->
+                        row.take(columns).forEachIndexed { columnIndex, cell ->
+                            add(part.copy(index = rowIndex * columns + columnIndex) to cell.tablePlainText())
+                        }
+                    }
+                }
+                is ChatMarkdownBlock.Image -> Unit
+            }
         }
     }
 }
@@ -4055,13 +4523,19 @@ private fun MessagePreviewRow(
 @Composable
 private fun RikkaMessageItem(
     message: ChatUiMessage,
+    backdrop: NgLiquidGlassBackdrop?,
+    messageModelProviders: Map<String, AiProviderSetting>,
+    assistantLabelWeight: FontWeight,
     interactionPolicy: AiChatInteractionPolicyContract?,
+    searchLocation: AiChatSearchLocation?,
     onRegenerate: () -> Unit,
     onDelete: () -> Unit,
     onFork: () -> Unit,
     onToggleFavorite: () -> Unit,
     onExport: () -> Unit,
-    onInteractionSubmit: (String, AiChatInteractionAction) -> Unit
+    onInteractionSubmit: (String, AiChatInteractionAction) -> Unit,
+    onImagePreview: (File, Boolean) -> Unit,
+    onImageEdit: ((File) -> Unit)?,
 ) {
     message.contextCompaction?.let { record ->
         ContextCompactionEventItem(
@@ -4072,24 +4546,53 @@ private fun RikkaMessageItem(
     }
     val clipboard = LocalClipboardManager.current
     val isUser = message.role == ChatRole.USER
+    val hasUserActions = isUser && when (message.deliveryState) {
+        ChatDeliveryState.SENT, ChatDeliveryState.RECOVERABLE, ChatDeliveryState.FAILED -> true
+        ChatDeliveryState.QUEUED, ChatDeliveryState.IN_FLIGHT -> false
+    }
     var confirmAction by remember { mutableStateOf<PendingMessageAction?>(null) }
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        if (isUser) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.widthIn(max = 320.dp)
-            ) {
-                Text(
-                    text = message.content,
-                    modifier = Modifier.padding(8.dp),
-                    style = MaterialTheme.typography.bodyLarge
+    val actionsMenu: (@Composable (() -> Unit) -> Unit)? =
+        if (hasUserActions && backdrop != null) {
+            { onDismissRequest ->
+                ChatMessageActionsMenu(
+                    message = message,
+                    onDismissRequest = onDismissRequest,
+                    onCopy = { clipboard.setText(AnnotatedString(message.content)) },
+                    onRegenerate = { confirmAction = PendingMessageAction.REGENERATE },
+                    onExport = onExport,
+                    onFork = onFork,
+                    onToggleFavorite = onToggleFavorite,
+                    onDelete = { confirmAction = PendingMessageAction.DELETE },
                 )
+            }
+        } else {
+            null
+        }
+    AiChatMessageSurface(isUser, backdrop, actionsMenu) {
+        if (isUser) {
+            AiImageThumbnailRow(message.imageAssetIds, onPreview = { onImagePreview(it, false) })
+            val body = remember(message.content) { AnnotatedString(message.content) }
+            if (message.content.isNotBlank() && backdrop != null) {
+                SearchableChatText(
+                    text = body,
+                    modifier = Modifier.align(Alignment.Start),
+                    style = MaterialTheme.typography.bodyLarge,
+                    searchLocation = searchLocation,
+                )
+            } else if (message.content.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.widthIn(max = 320.dp)
+                ) {
+                    SearchableChatText(
+                        text = body,
+                        modifier = Modifier.padding(8.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        searchLocation = searchLocation,
+                    )
+                }
             }
             if (message.deliveryState != ChatDeliveryState.SENT &&
                 message.deliveryState != ChatDeliveryState.IN_FLIGHT
@@ -4106,10 +4609,7 @@ private fun RikkaMessageItem(
                     style = MaterialTheme.typography.labelSmall
                 )
             }
-            if (message.deliveryState == ChatDeliveryState.SENT ||
-                message.deliveryState == ChatDeliveryState.RECOVERABLE ||
-                message.deliveryState == ChatDeliveryState.FAILED
-            ) {
+            if (hasUserActions && backdrop == null) {
                 MessageActions(
                     message = message,
                     clipboard = clipboard,
@@ -4122,9 +4622,32 @@ private fun RikkaMessageItem(
                 )
             }
         } else {
-            AssistantMessageHeader()
+            val model = remember(message.usageProviderId, message.usageModelId, messageModelProviders) {
+                resolveChatMessageModel(message.usageProviderId, message.usageModelId, messageModelProviders)
+            }
+            AssistantMessageHeader(
+                fontWeight = assistantLabelWeight,
+                modelLabel = model.label ?: stringResource(R.string.ai_assistant),
+                modelIconRes = model.iconRes,
+            )
+            val generatedImages = remember(message.imageAssetIds, message.toolReceipts) {
+                (message.imageAssetIds.mapNotNull(AiImageAssets::file) + message.toolReceipts
+                    .filter { it.isCodexImage() }
+                    .map { codexImageFile(it.conversationId, it.receiptId) }).distinct()
+            }
+            generatedImages.forEach { file ->
+                key(file) {
+                    AiChatImageResult(
+                        file,
+                        onPreview = { onImagePreview(file, true) },
+                        onEdit = onImageEdit?.let { edit -> { edit(file) } },
+                    )
+                }
+            }
             if (message.loading) {
-                ThinkingLoadingLine()
+                val wait = message.imageWait
+                if (wait != null) AiImageWaitCard(wait)
+                else if (generatedImages.isEmpty()) ThinkingLoadingLine(message.webActivity?.activeAction)
                 if (!message.reasoning.isNullOrBlank()) {
                     ReasoningEntry(
                         reasoning = message.reasoning,
@@ -4167,18 +4690,19 @@ private fun RikkaMessageItem(
                         elapsedMs = message.elapsedMs
                     )
                 }
-                val displayContent = if (interactionRender.interactions.isNotEmpty()) {
-                    interactionRender.content
-                } else {
-                    interactionRender.content.ifBlank { message.content }
-                }
+                val displayContent = interactionRender.displayContent(message.content)
                 if (displayContent.isNotBlank()) {
+                    val markdown = remember(displayContent, message.webActivity, searchLocation) {
+                        message.webActivity?.takeIf { searchLocation == null }?.withInlineLinks(displayContent)
+                            ?: displayContent
+                    }
                     MarkdownMessageText(
-                        content = displayContent,
+                        content = markdown,
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateContentSize()
-                            .padding(top = 2.dp)
+                            .padding(top = 2.dp),
+                        searchLocation = searchLocation,
                     )
                 }
                 interactionPolicyResult.accepted.forEach { interaction ->
@@ -4209,6 +4733,7 @@ private fun RikkaMessageItem(
                         )
                     }
                 }
+                message.webActivity?.let { WebSources(it, message.usageProviderId) }
                 if (message.toolTrace.isNotEmpty()) {
                     ToolTraceEntry(message.toolTrace)
                 }
@@ -4225,7 +4750,7 @@ private fun RikkaMessageItem(
                     onToggleFavorite = onToggleFavorite,
                     onExport = onExport
                 )
-                if (!message.meta.isNullOrBlank()) {
+                if (!message.meta.isNullOrBlank() && message.meta != "error") {
                     Text(
                         text = message.meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
@@ -4247,6 +4772,89 @@ private fun RikkaMessageItem(
                 }
             }
         )
+    }
+}
+
+@Composable
+internal fun AiChatMessageSurface(
+    isUser: Boolean,
+    backdrop: NgLiquidGlassBackdrop?,
+    actionsMenu: (@Composable (() -> Unit) -> Unit)?,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val alignment = if (isUser) Alignment.End else Alignment.Start
+    if (backdrop == null) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = alignment,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            content = content,
+        )
+        return
+    }
+
+    var menuExpanded by remember(actionsMenu != null) { mutableStateOf(false) }
+    val bubbleGesture = if (actionsMenu != null) {
+        val hapticFeedback = LocalHapticFeedback.current
+        Modifier
+            .pointerInput(hapticFeedback) {
+                detectTapGestures(onLongPress = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    menuExpanded = true
+                })
+            }
+            .semantics(mergeDescendants = true) {
+                onLongClick(label = "消息操作") {
+                    menuExpanded = true
+                    true
+                }
+            }
+    } else {
+        Modifier
+    }
+    val corner = 20.dp
+    val shape = RoundedCornerShape(
+        topStart = corner,
+        topEnd = corner,
+        bottomEnd = if (isUser) 6.dp else corner,
+        bottomStart = if (isUser) corner else 6.dp,
+    )
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = if (isUser) Alignment.TopEnd else Alignment.TopStart,
+    ) {
+        NgVisualSurface(
+            modifier = if (isUser) {
+                Modifier
+                    .padding(start = 32.dp)
+                    .widthIn(max = 320.dp)
+                    .then(bubbleGesture)
+            } else {
+                Modifier.padding(end = 8.dp).fillMaxWidth()
+            },
+            role = NgMaterialRole.CONTENT,
+            cornerRadius = corner,
+            shape = shape,
+            style = NgGlassDefaults.neutralStyle(containerAlpha = 0.94f)
+                .copy(contentColor = MaterialTheme.colorScheme.onSurface),
+            contentPadding = if (isUser) {
+                PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            } else {
+                PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+            },
+            liquidBackdrop = backdrop,
+        ) {
+            Column(
+                horizontalAlignment = alignment,
+                verticalArrangement = Arrangement.spacedBy(if (isUser) 2.dp else 4.dp),
+                content = content,
+            )
+        }
+        if (menuExpanded && actionsMenu != null) {
+            Box(Modifier.align(Alignment.BottomEnd)) {
+                actionsMenu { menuExpanded = false }
+            }
+        }
     }
 }
 
@@ -4276,7 +4884,7 @@ private fun ContextCompactionEventItem(
 }
 
 @Composable
-private fun aiChatContentCardColor(): Color = if (NgTheme.snapshot.isDark) {
+internal fun aiChatContentCardColor(): Color = if (NgTheme.snapshot.isDark) {
     Color(NgTheme.colors.surfaceContainerHigh)
 } else {
     colorResource(R.color.ng_surface_card)
@@ -4820,7 +5428,7 @@ private fun InteractionSubmitRow(
 }
 
 @Composable
-private fun InteractionChip(
+internal fun InteractionChip(
     text: String,
     primary: Boolean,
     modifier: Modifier = Modifier,
@@ -4865,14 +5473,19 @@ private fun InteractionChip(
 }
 
 @Composable
-private fun ThinkingLoadingLine() {
+private fun ThinkingLoadingLine(webAction: AiWebActivityAction?) {
     Row(
         modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
-            text = "Thinking",
+            text = when (webAction) {
+                AiWebActivityAction.SEARCH -> stringResource(R.string.ai_chat_web_searching)
+                AiWebActivityAction.READ -> stringResource(R.string.ai_chat_web_reading)
+                AiWebActivityAction.IMAGE_SEARCH -> stringResource(R.string.ai_chat_web_searching_images)
+                null -> "Thinking"
+            },
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
@@ -4913,19 +5526,23 @@ private fun ThinkingDots() {
 }
 
 @Composable
-private fun AssistantMessageHeader() {
+private fun AssistantMessageHeader(
+    fontWeight: FontWeight,
+    modelLabel: String,
+    @DrawableRes modelIconRes: Int,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         RikkaAssistantAvatar(
-            iconRes = currentAssistantModelIconRes(),
+            iconRes = modelIconRes,
             modifier = Modifier.size(28.dp)
         )
         Text(
-            text = currentAssistantModelLabel(),
+            text = modelLabel,
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = fontWeight,
             color = colorResource(R.color.ng_on_surface),
             maxLines = 1
         )
@@ -4978,23 +5595,28 @@ private fun ReasoningEntry(
 private fun MarkdownMessageText(
     content: String,
     modifier: Modifier = Modifier,
-    textSizeSp: Float = 16f
+    textSizeSp: Float = 16f,
+    searchLocation: AiChatSearchLocation? = null,
 ) {
     val blocks = remember(content) { splitMarkdownBlocks(content) }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        blocks.forEach { block ->
+        blocks.forEachIndexed { index, block ->
             when (block) {
                 is ChatMarkdownBlock.Text -> MarkdownTextBlock(
                     content = block.value,
-                    textSizeSp = textSizeSp
+                    textSizeSp = textSizeSp,
+                    searchLocation = searchLocation,
+                    searchPart = AiChatSearchPart(index),
                 )
 
                 is ChatMarkdownBlock.Code -> MarkdownCodeBlock(
                     language = block.language,
-                    code = block.code
+                    code = block.code,
+                    searchLocation = searchLocation,
+                    blockIndex = index,
                 )
 
                 is ChatMarkdownBlock.Image -> MarkdownImageBlock(
@@ -5002,18 +5624,99 @@ private fun MarkdownMessageText(
                     url = block.url
                 )
 
-                is ChatMarkdownBlock.Table -> MarkdownTableBlock(block.table)
+                is ChatMarkdownBlock.Table -> MarkdownTableBlock(
+                    table = block.table,
+                    searchLocation = searchLocation,
+                    blockIndex = index,
+                )
 
-                is ChatMarkdownBlock.Callout -> MarkdownCalloutBlock(block.callout)
+                is ChatMarkdownBlock.Callout -> MarkdownCalloutBlock(
+                    callout = block.callout,
+                    searchLocation = searchLocation,
+                    blockIndex = index,
+                )
             }
         }
     }
 }
 
+private class ChatSearchTextAnchor(private val location: AiChatSearchLocation) {
+    private var coordinates: LayoutCoordinates? = null
+    private var lineTop: Float? = null
+
+    fun placed(value: LayoutCoordinates) {
+        coordinates = value
+        lineTop?.let { location.recordMatch(value, it) }
+    }
+
+    fun setLineTop(value: Float) {
+        lineTop = value
+        coordinates?.let { location.recordMatch(it, value) }
+    }
+}
+
+@Composable
+private fun rememberChatSearchTextAnchor(
+    location: AiChatSearchLocation?,
+    part: AiChatSearchPart,
+): ChatSearchTextAnchor? {
+    return if (location != null && location.match.part == part) {
+        remember(location) { ChatSearchTextAnchor(location) }
+    } else null
+}
+
+@Composable
+private fun SearchableChatText(
+    text: AnnotatedString,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+    searchLocation: AiChatSearchLocation? = null,
+    searchPart: AiChatSearchPart = AiChatSearchPart(0),
+    onMatchLeft: ((Float) -> Unit)? = null,
+) {
+    val anchor = rememberChatSearchTextAnchor(searchLocation, searchPart)
+    val query = searchLocation?.query
+    val highlightedText = if (query != null) {
+        val matchStyle = aiChatSearchHighlightStyle()
+        remember(text, query, matchStyle) { query.highlight(text, matchStyle) }
+    } else text
+    val firstMatch = if (anchor != null && query != null) {
+        remember(text, query) { query.findIn(text.text)?.range?.first }
+    } else null
+    Text(
+        text = highlightedText,
+        modifier = modifier.then(
+            if (anchor == null) Modifier else Modifier.onGloballyPositioned(anchor::placed),
+        ),
+        color = color,
+        style = style,
+        maxLines = maxLines,
+        overflow = overflow,
+        onTextLayout = { layout ->
+            if (anchor != null && firstMatch != null) {
+                val line = layout.getLineForOffset(firstMatch)
+                anchor.setLineTop(layout.getLineTop(line))
+                onMatchLeft?.invoke(layout.getBoundingBox(firstMatch).left)
+            }
+        },
+    )
+}
+
+private fun MarkdownCallout.displayTitle(): String {
+    if (hasExplicitTitle) return title
+    val warning = type in setOf(MarkdownCalloutType.WARNING, MarkdownCalloutType.CAUTION)
+    return "${if (warning) "⚠️" else "ℹ️"} $title"
+}
+
 @Composable
 private fun MarkdownCalloutBlock(
     callout: MarkdownCallout,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    searchLocation: AiChatSearchLocation? = null,
+    blockIndex: Int = 0,
 ) {
     val isDark = NgTheme.snapshot.isDark
     val (accent, container) = when (callout.type) {
@@ -5033,7 +5736,6 @@ private fun MarkdownCalloutBlock(
             Color(0xFFFFA8A1) to Color(0xFF412827)
         } else Color(0xFFB3261E) to Color(0xFFF9DEDC)
     }
-    val warning = callout.type in setOf(MarkdownCalloutType.WARNING, MarkdownCalloutType.CAUTION)
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -5044,18 +5746,19 @@ private fun MarkdownCalloutBlock(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = if (callout.hasExplicitTitle) {
-                    callout.title
-                } else {
-                    "${if (warning) "⚠️" else "ℹ️"} ${callout.title}"
-                },
+            SearchableChatText(
+                text = AnnotatedString(callout.displayTitle()),
                 color = accent,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                searchLocation = searchLocation,
+                searchPart = AiChatSearchPart(blockIndex),
             )
             if (callout.body.isNotBlank()) {
-                MarkdownTextBlock(content = callout.body)
+                MarkdownTextBlock(
+                    content = callout.body,
+                    searchLocation = searchLocation,
+                    searchPart = AiChatSearchPart(blockIndex, 1),
+                )
             }
         }
     }
@@ -5065,7 +5768,9 @@ private fun MarkdownCalloutBlock(
 private fun MarkdownTextBlock(
     content: String,
     modifier: Modifier = Modifier,
-    textSizeSp: Float = 16f
+    textSizeSp: Float = 16f,
+    searchLocation: AiChatSearchLocation? = null,
+    searchPart: AiChatSearchPart = AiChatSearchPart(0),
 ) {
     val context = LocalContext.current
     val normalizedContent = remember(content) { normalizeAiChatMarkdown(content) }
@@ -5079,8 +5784,28 @@ private fun MarkdownTextBlock(
             .usePlugin(TablePlugin.create(context))
             .build()
     }
+    val anchor = rememberChatSearchTextAnchor(searchLocation, searchPart)
+    val query = searchLocation?.query
+    val highlighted = if (query != null) {
+        val style = aiChatSearchHighlightStyle()
+        remember(markwon, normalizedContent, query, style) {
+            SpannableString(markwon.toMarkdown(normalizedContent)).apply {
+                query.findAllIn(this).forEach { match ->
+                    val start = match.range.first
+                    val end = match.range.last + 1
+                    setSpan(BackgroundColorSpan(style.background.toArgb()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    setSpan(ForegroundColorSpan(style.color.toArgb()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
+        }
+    } else null
+    val firstMatch = if (anchor != null && query != null && highlighted != null) {
+        remember(highlighted, query) { query.findIn(highlighted)?.range?.first }
+    } else null
     AndroidView(
-        modifier = modifier,
+        modifier = modifier.then(
+            if (anchor == null) Modifier else Modifier.onGloballyPositioned(anchor::placed),
+        ),
         factory = { viewContext ->
             android.widget.TextView(viewContext).apply {
                 NgThemeRuntimeAssets.applyAppTypeface(context, this)
@@ -5098,7 +5823,19 @@ private fun MarkdownTextBlock(
             textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
             textView.linksClickable = true
             textView.movementMethod = LinkMovementMethod.getInstance()
-            markwon.setMarkdown(textView, normalizedContent)
+            if (highlighted == null) {
+                markwon.setMarkdown(textView, normalizedContent)
+            } else {
+                markwon.setParsedMarkdown(textView, highlighted)
+                if (anchor != null && firstMatch != null) {
+                    textView.doOnLayout {
+                        textView.layout?.let { layout ->
+                            val line = layout.getLineForOffset(firstMatch)
+                            anchor.setLineTop((textView.totalPaddingTop + layout.getLineTop(line)).toFloat())
+                        }
+                    }
+                }
+            }
         }
     )
 }
@@ -5107,10 +5844,14 @@ private fun MarkdownTextBlock(
 private fun MarkdownCodeBlock(
     language: String,
     code: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    searchLocation: AiChatSearchLocation? = null,
+    blockIndex: Int = 0,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val codeScroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -5124,13 +5865,15 @@ private fun MarkdownCodeBlock(
                     .padding(start = 12.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = language.ifBlank { "text" },
+                SearchableChatText(
+                    text = AnnotatedString(language.ifBlank { "text" }),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    searchLocation = searchLocation,
+                    searchPart = AiChatSearchPart(blockIndex),
                 )
                 IconButton(
                     onClick = {
@@ -5151,14 +5894,18 @@ private fun MarkdownCodeBlock(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
+                    .horizontalScroll(codeScroll)
                     .padding(12.dp)
             ) {
-                Text(
-                    text = code,
-                    style = MaterialTheme.typography.bodySmall,
+                SearchableChatText(
+                    text = AnnotatedString(code),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = NgTheme.fontFamily),
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontFamily = NgTheme.fontFamily
+                    searchLocation = searchLocation,
+                    searchPart = AiChatSearchPart(blockIndex, 1),
+                    onMatchLeft = { left ->
+                        scope.launch { codeScroll.scrollTo(left.roundToInt().coerceAtLeast(0)) }
+                    },
                 )
             }
         }
@@ -5196,7 +5943,9 @@ private fun MarkdownImageBlock(
 @Composable
 private fun MarkdownTableBlock(
     table: MarkdownTable,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    searchLocation: AiChatSearchLocation? = null,
+    blockIndex: Int = 0,
 ) {
     val columns = table.headers.size
     if (columns == 0) return
@@ -5206,11 +5955,20 @@ private fun MarkdownTableBlock(
     val headerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
     val rowColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.24f)
     val alternateRowColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f)
+    val tableScroll = rememberScrollState()
+    val target = searchLocation?.match?.part?.takeIf { it.block == blockIndex }
+    if (target != null) {
+        val density = LocalDensity.current
+        LaunchedEffect(searchLocation, widths, density) {
+            val offset = with(density) { widths.take(target.index % columns).sumOf { it.roundToPx() } }
+            tableScroll.scrollTo(offset)
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
+            .horizontalScroll(tableScroll)
     ) {
         Column(
             modifier = Modifier
@@ -5239,7 +5997,7 @@ private fun MarkdownTableBlock(
                                         .background(Color.Transparent)
                                 )
                         ) {
-                            Text(
+                            SearchableChatText(
                                 text = tableCellText(text),
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -5250,7 +6008,8 @@ private fun MarkdownTableBlock(
                                     MaterialTheme.typography.bodyMedium
                                 },
                                 color = MaterialTheme.colorScheme.onSurface,
-                                softWrap = true
+                                searchLocation = searchLocation,
+                                searchPart = AiChatSearchPart(blockIndex, rowIndex * columns + columnIndex),
                             )
                             Box(
                                 modifier = Modifier
@@ -6323,7 +7082,7 @@ private fun JsonArray.allElements(predicate: (JsonElement) -> Boolean): Boolean 
     return (0 until size()).all { index -> predicate(get(index)) }
 }
 
-private fun AgentModeEntryContext?.payloadString(key: String): String {
+internal fun AgentModeEntryContext?.payloadString(key: String): String {
     return runCatching {
         this?.payload
             ?.get(key)
@@ -6341,6 +7100,63 @@ private fun AgentModeEntryContext?.payloadInt(key: String): Int? {
             ?.takeIf { it.isJsonPrimitive }
             ?.asInt
     }.getOrNull()
+}
+
+@Composable
+private fun WebSources(activity: AiWebActivity, usageProviderId: String?) {
+    activity.externalError?.let { error ->
+        Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    if (activity.searchFailed) {
+        Text(
+            text = stringResource(R.string.ai_chat_web_search_failed),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+    activity.failedLinks.forEach { url ->
+        Text(
+            text = stringResource(R.string.ai_chat_web_read_failed, url),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    if (activity.sources.isEmpty()) return
+
+    val context = LocalContext.current
+    var expanded by remember(activity.sources) { mutableStateOf(false) }
+    InlineDetailEntry(
+        label = stringResource(R.string.ai_chat_web_sources, activity.sources.size),
+        expanded = expanded,
+        onClick = { expanded = !expanded },
+    )
+    AnimatedVisibility(visible = expanded) {
+        Column(Modifier.fillMaxWidth().padding(start = 12.dp, bottom = 6.dp)) {
+            val providerLabel = if (activity.hasLegacyChatGptNativeLabel(usageProviderId)) {
+                stringResource(R.string.ai_search_source_native, "ChatGPT")
+            } else {
+                activity.providerLabel
+            }
+            providerLabel?.let { label ->
+                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            activity.sources.forEach { source ->
+                val url = source.url.webUrl() ?: return@forEach
+                Text(
+                    text = source.title,
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable { context.openUrl(url) }
+                        .padding(vertical = 6.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -6516,22 +7332,10 @@ private fun MessageActions(
                 ChatMessageActionsMenu(
                     message = message,
                     onDismissRequest = { showActionsMenu = false },
-                    onExport = {
-                        showActionsMenu = false
-                        onExport()
-                    },
-                    onFork = {
-                        showActionsMenu = false
-                        onFork()
-                    },
-                    onToggleFavorite = {
-                        showActionsMenu = false
-                        onToggleFavorite()
-                    },
-                    onDelete = {
-                        showActionsMenu = false
-                        onDelete()
-                    }
+                    onExport = onExport,
+                    onFork = onFork,
+                    onToggleFavorite = onToggleFavorite,
+                    onDelete = onDelete,
                 )
             }
         }
@@ -6545,33 +7349,55 @@ private fun ChatMessageActionsMenu(
     onExport: () -> Unit,
     onFork: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onCopy: (() -> Unit)? = null,
+    onRegenerate: (() -> Unit)? = null,
 ) {
+    fun dismissThen(action: () -> Unit): () -> Unit = {
+        onDismissRequest()
+        action()
+    }
+
     NgFunctionMenu(
         expanded = true,
         onDismissRequest = onDismissRequest,
-        actions = listOf(
+        containerColor = aiChatContentCardColor().takeUnless { NgTheme.snapshot.isEInk },
+        actions = listOfNotNull(
+            onCopy?.let {
+                NgFunctionMenuAction(
+                    icon = Icons.Rounded.ContentCopy,
+                    text = "复制",
+                    onClick = dismissThen(it)
+                )
+            },
+            onRegenerate?.let {
+                NgFunctionMenuAction(
+                    icon = Icons.Rounded.Refresh,
+                    text = "重新生成",
+                    onClick = dismissThen(it)
+                )
+            },
             NgFunctionMenuAction(
                 icon = Icons.Rounded.Share,
                 text = "导出",
-                onClick = onExport
+                onClick = dismissThen(onExport)
             ),
             NgFunctionMenuAction(
                 icon = Icons.AutoMirrored.Rounded.CallSplit,
                 text = "分支",
-                onClick = onFork
+                onClick = dismissThen(onFork)
             ),
             NgFunctionMenuAction(
                 icon = if (message.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                 text = if (message.favorite) "取消" else "收藏",
-                onClick = onToggleFavorite
+                onClick = dismissThen(onToggleFavorite)
             ),
             NgFunctionMenuAction(
                 icon = Icons.Rounded.Delete,
                 text = "删除",
                 danger = true,
                 dividerBefore = true,
-                onClick = onDelete
+                onClick = dismissThen(onDelete)
             )
         )
     )
@@ -6583,92 +7409,105 @@ private fun MessageConfirmDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    AlertDialog(
+    val title = when (action) {
+        PendingMessageAction.REGENERATE -> "重新生成"
+        PendingMessageAction.DELETE -> "删除"
+    }
+    val message = when (action) {
+        PendingMessageAction.REGENERATE -> "确定要重新生成此消息吗？"
+        PendingMessageAction.DELETE -> "确定要删除这条消息吗？"
+    }
+    if (NgTheme.snapshot.isEInk) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(title) },
+            text = { Text(message) },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onConfirm) {
+                    Text("确认")
+                }
+            },
+        )
+        return
+    }
+
+    NgPaneDialog(
         onDismissRequest = onDismiss,
-        title = {
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        NgDialog(
+            title = title,
+            modifier = Modifier
+                .padding(horizontal = 10.dp)
+                .widthIn(max = 520.dp),
+            variant = NgDialogVariant.CLASSIC_CONFIRMATION,
+            titleFontWeight = FontWeight.Normal,
+            actions = {
+                NgDialogTextActionButton(text = "取消", onClick = onDismiss)
+                NgDialogTextActionButton(text = "确认", onClick = onConfirm)
+            },
+        ) {
             Text(
-                text = when (action) {
-                    PendingMessageAction.REGENERATE -> "重新生成"
-                    PendingMessageAction.DELETE -> "删除"
-                }
+                text = message,
+                modifier = Modifier.padding(bottom = 20.dp),
+                color = Color(NgTheme.colors.onSurface),
+                style = MaterialTheme.typography.bodyLarge,
             )
-        },
-        text = {
-            Text(
-                text = when (action) {
-                    PendingMessageAction.REGENERATE -> "确定要重新生成此消息吗？"
-                    PendingMessageAction.DELETE -> "确定要删除这条消息吗？"
-                }
-            )
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text("确认")
-            }
         }
-    )
+    }
 }
 
 @Composable
 private fun ExportSelectionFloatingBar(
     selectedCount: Int,
+    selectionAvailable: Boolean,
+    backdrop: NgLiquidGlassBackdrop?,
     onCancel: () -> Unit,
+    onSelectAll: () -> Unit,
     onInvert: () -> Unit,
-    onConfirm: () -> Unit
+    onConfirm: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp),
+            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Surface(
-            shape = RoundedCornerShape(32.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
-            tonalElevation = 4.dp,
-            shadowElevation = 4.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Rounded.Close, contentDescription = "取消")
-                }
-                IconButton(onClick = onInvert) {
-                    Icon(Icons.Rounded.DoneAll, contentDescription = "全选/反选")
-                }
-                Surface(
+        NgFloatingIconToolbar(
+            modifier = Modifier.width(264.dp),
+            liquidBackdrop = backdrop,
+            actions = listOf(
+                NgFloatingIconToolbarAction(
+                    iconRes = R.drawable.ic_baseline_close,
+                    label = stringResource(R.string.cancel),
+                    onClick = onCancel,
+                ),
+                NgFloatingIconToolbarAction(
+                    iconRes = R.drawable.ic_select_all,
+                    label = stringResource(R.string.select_all),
+                    onClick = onSelectAll,
+                    enabled = selectionAvailable,
+                ),
+                NgFloatingIconToolbarAction(
+                    iconRes = R.drawable.ic_refresh_black_24dp,
+                    label = stringResource(R.string.revert_selection),
+                    onClick = onInvert,
+                    enabled = selectionAvailable,
+                ),
+                NgFloatingIconToolbarAction(
+                    iconRes = R.drawable.ic_check,
+                    label = stringResource(R.string.confirm),
                     onClick = onConfirm,
                     enabled = selectedCount > 0,
-                    shape = CircleShape,
-                    color = if (selectedCount > 0) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    modifier = Modifier.size(52.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.Check,
-                            contentDescription = "确认",
-                            tint = if (selectedCount > 0) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
-                }
-            }
-        }
+                    emphasized = true,
+                ),
+            ),
+        )
     }
 }
 
@@ -6757,11 +7596,7 @@ private fun MessageActionButton(
             .size(16.dp),
         contentAlignment = Alignment.Center
     ) {
-        CompositionLocalProvider(LocalContentColor provides colorResource(R.color.ng_on_surface)) {
-            Box(contentAlignment = Alignment.Center) {
-                content()
-            }
-        }
+        content()
     }
 }
 
@@ -6858,6 +7693,8 @@ private fun ContextUsageDialog(
             .widthIn(max = 360.dp),
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
+        containerColor = colorResource(R.color.ng_surface_card),
+        tonalElevation = 0.dp,
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -7102,10 +7939,16 @@ internal fun resolveSkillInputPolicy(
 private fun RikkaChatInput(
     value: String,
     onValueChange: (String) -> Unit,
+    onInputFocused: () -> Unit,
+    backdrop: NgLiquidGlassBackdrop?,
     messageInputEnabled: Boolean,
+    sendEnabled: Boolean,
     sending: Boolean,
+    inputNotice: (@Composable () -> Unit)?,
+    inputHint: String?,
     @DrawableRes modelIconRes: Int,
     reasoningEnabled: Boolean,
+    webAccess: AiWebAccess?,
     mcpEnabled: Boolean,
     skillEnabled: Boolean,
     mcpControlVisible: Boolean,
@@ -7114,12 +7957,22 @@ private fun RikkaChatInput(
     suggestionAvailable: Boolean,
     suggestionExpanded: Boolean,
     contextUsage: AiChatContextUsage,
+    contextUsageWithTools: Boolean,
+    imageAssets: List<String>,
+    directImage: Boolean,
+    showDirectImageLabel: Boolean,
+    imageImporting: Boolean,
+    imageAttachmentButton: (@Composable () -> Unit)?,
+    onImagePreview: (File) -> Unit,
+    onImageRemove: (String) -> Unit,
+    onClearDirectImage: () -> Unit,
     attachments: List<AiChatInputAttachment>,
     skills: List<AiChatInputAttachment>,
     skillRemovable: Boolean,
     skillErrorText: String?,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    onWebSettingsClick: () -> Unit,
     onModelClick: () -> Unit,
     onReasoningClick: () -> Unit,
     onMcpClick: () -> Unit,
@@ -7131,20 +7984,32 @@ private fun RikkaChatInput(
     onRemoveAttachment: (AiChatInputAttachment) -> Unit,
     onRemoveSkill: (AiChatInputAttachment) -> Unit
 ) {
-    var inputFocused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val hasInput = value.isNotBlank() || imageAssets.isNotEmpty() && !directImage
+    val canSendDraft = sendEnabled && (!sending || imageAssets.isEmpty() && !directImage)
+    val sendPrimary = MaterialTheme.colorScheme.primary
+    val isDark = NgTheme.snapshot.isDark
+    val sendButtonColor = remember(sendPrimary, isDark) {
+        Color(NgSolidButtonPalette.resolveContainer(sendPrimary.toArgb(), Color.White.toArgb(), isDark))
+    }
+    val composerPadding = if (backdrop == null) {
+        PaddingValues(8.dp)
+    } else {
+        PaddingValues(
+            start = AiChatHorizontalPadding,
+            top = 10.dp,
+            end = AiChatHorizontalPadding,
+            bottom = AiChatComposerBottomPadding,
+        )
+    }
     Surface(color = Color.Transparent) {
         Column(
             modifier = Modifier
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .padding(composerPadding)
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(28.dp),
-                color = aiChatContentCardColor(),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
-            ) {
+            AiChatComposerSurface(backdrop) {
                 Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                     CompactSkillStatusRow(
                         skills = skills,
@@ -7162,34 +8027,30 @@ private fun RikkaChatInput(
                             onRemove = onRemoveAttachment
                         )
                     }
-                    TextField(
-                        value = value,
-                        onValueChange = onValueChange,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusChanged { inputFocused = it.isFocused },
-                        readOnly = !messageInputEnabled,
-                        placeholder = {
-                            if (!inputFocused) {
-                                Text(
-                                    if (skillErrorText != null) {
-                                        "请先切换到支持工具调用的模型"
-                                    } else if (messageInputEnabled) {
-                                        "输入消息与 AI 聊天"
-                                    } else {
-                                        "可先设置模型和思考深度"
-                                    }
-                                )
-                            }
-                        },
-                        maxLines = 5,
-                        colors = TextFieldDefaults.colors(
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
+                    AiImageThumbnailRow(
+                        imageAssets, onImagePreview, onImageRemove,
+                        modifier = Modifier.padding(vertical = 4.dp),
                     )
+                    if (showDirectImageLabel) {
+                        TextButton(onClick = onClearDirectImage) {
+                            Text(stringResource(R.string.ai_image_generate) + "  ×")
+                        }
+                    }
+                    if (imageImporting) Text(stringResource(R.string.ai_image_importing),
+                        style = MaterialTheme.typography.labelMedium)
+                    if (inputNotice != null) {
+                        inputNotice()
+                    } else {
+                        AiChatComposerField(
+                            value = value,
+                            onValueChange = onValueChange,
+                            onInputFocused = onInputFocused,
+                            messageInputEnabled = messageInputEnabled,
+                            hasSkillError = skillErrorText != null,
+                            compact = backdrop != null,
+                            inputHint = inputHint,
+                        )
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -7207,6 +8068,12 @@ private fun RikkaChatInput(
                                 active = reasoningEnabled,
                                 onClick = onReasoningClick
                             )
+                            if (webAccess != null) {
+                                AiChatWebButton(webAccess) {
+                                    focusManager.clearFocus()
+                                    onWebSettingsClick()
+                                }
+                            }
                             if (mcpControlVisible) {
                                 InputDrawableIcon(
                                     iconRes = R.drawable.ic_ai_capability_tool,
@@ -7221,11 +8088,13 @@ private fun RikkaChatInput(
                                     onClick = onSkillClick
                                 )
                             }
+                            if (contextUsageWithTools) {
+                                ContextUsageIndicator(usage = contextUsage, onClick = onContextUsageClick)
+                            }
                         }
-                        ContextUsageIndicator(
-                            usage = contextUsage,
-                            onClick = onContextUsageClick
-                        )
+                        if (!contextUsageWithTools) {
+                            ContextUsageIndicator(usage = contextUsage, onClick = onContextUsageClick)
+                        }
                         if (contextAvailable) {
                             InputDrawableIcon(
                                 iconRes = R.drawable.ic_ai_context_menu,
@@ -7242,30 +8111,31 @@ private fun RikkaChatInput(
                                 onClick = onSuggestionClick
                             )
                         }
-                        if (sending && value.isNotBlank()) {
+                        if (sending && hasInput && canSendDraft) {
                             ChatInputActionButton(
                                 icon = Icons.Rounded.ArrowUpward,
                                 contentDescription = "Queue message",
                                 enabled = messageInputEnabled,
-                                color = MaterialTheme.colorScheme.primary,
-                                tint = MaterialTheme.colorScheme.onPrimary,
+                                color = sendButtonColor,
+                                tint = Color.White,
                                 onClick = onSend
                             )
                         }
+                        imageAttachmentButton?.invoke()
                         ChatInputActionButton(
                             icon = if (sending) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward,
                             contentDescription = if (sending) "Stop" else "Send",
-                            enabled = sending || messageInputEnabled && value.isNotBlank(),
+                            enabled = sending || canSendDraft && hasInput,
                             color = when {
                                 sending -> MaterialTheme.colorScheme.errorContainer
-                                !messageInputEnabled || value.isBlank() -> MaterialTheme.colorScheme.surfaceVariant
-                                else -> MaterialTheme.colorScheme.primary
+                                !canSendDraft || !hasInput -> MaterialTheme.colorScheme.surfaceVariant
+                                else -> sendButtonColor
                             },
                             tint = when {
                                 sending -> MaterialTheme.colorScheme.onErrorContainer
-                                !messageInputEnabled || value.isBlank() ->
+                                !canSendDraft || !hasInput ->
                                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                else -> MaterialTheme.colorScheme.onPrimary
+                                else -> Color.White
                             },
                             onClick = if (sending) onStop else onSend
                         )
@@ -7273,6 +8143,99 @@ private fun RikkaChatInput(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun AiChatComposerSurface(
+    backdrop: NgLiquidGlassBackdrop?,
+    content: @Composable () -> Unit,
+) {
+    if (backdrop == null) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            color = aiChatContentCardColor(),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+            content = content,
+        )
+    } else {
+        NgVisualSurface(
+            modifier = Modifier.fillMaxWidth(),
+            role = NgMaterialRole.CONTROL,
+            cornerRadius = AiChatComposerCornerRadius,
+            style = NgGlassDefaults.neutralStyle(containerAlpha = 1f),
+            liquidBackdrop = backdrop,
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+internal fun AiChatComposerField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onInputFocused: () -> Unit,
+    messageInputEnabled: Boolean,
+    hasSkillError: Boolean,
+    compact: Boolean,
+    inputHint: String?,
+) {
+    var inputFocused by remember { mutableStateOf(false) }
+    val modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
+        inputFocused = state.isFocused
+        if (state.isFocused) onInputFocused()
+    }
+    val placeholder = @Composable {
+        if (!inputFocused) {
+            Text(
+                text = when {
+                    hasSkillError -> "请先切换到支持工具调用的模型"
+                    messageInputEnabled -> inputHint ?: "输入消息与 AI 聊天"
+                    else -> "可先设置模型和思考深度"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+    if (compact) {
+        val colors = MaterialTheme.colorScheme
+        val style = MaterialTheme.typography.bodyLarge
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = modifier,
+            readOnly = !messageInputEnabled,
+            maxLines = 5,
+            textStyle = style.copy(color = colors.onSurface),
+            cursorBrush = SolidColor(colors.primary),
+            decorationBox = { innerTextField ->
+                Box(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp)) {
+                    if (value.isEmpty()) {
+                        CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) {
+                            placeholder()
+                        }
+                    }
+                    innerTextField()
+                }
+            },
+        )
+    } else {
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = modifier,
+            readOnly = !messageInputEnabled,
+            placeholder = placeholder,
+            maxLines = 5,
+            colors = TextFieldDefaults.colors(
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+            ),
+        )
     }
 }
 
@@ -7540,10 +8503,13 @@ private fun AiChatContextPreviewSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AiChatMcpCapabilitySheet(
+private fun AiChatInternalMcpSheet(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
     modules: List<McpInternalToolModule>,
     selectedCapabilityIds: Set<String>,
     onSelectionChange: (Set<String>) -> Unit,
+    selectionEnabled: Boolean,
     onDismiss: () -> Unit
 ) {
     val baseSnapshot = NgTheme.snapshot
@@ -7575,94 +8541,102 @@ private fun AiChatMcpCapabilitySheet(
         NgBottomDrawerSurface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.70f),
+                .then(if (enabled && selectionEnabled) Modifier.fillMaxHeight(0.70f) else Modifier),
             contentCardStyle = NgDrawerContentCardStyle.ADAPTIVE,
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(top = 2.dp)
+                    .padding(top = 8.dp, bottom = 12.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 20.dp, top = 8.dp, end = 14.dp, bottom = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "AI 功能",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "已选 ${selectedCapabilityIds.size} 项 · $selectedToolCount 个接口",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    TextButton(
-                        enabled = allCapabilityIds.isNotEmpty(),
-                        onClick = {
-                            if (selectedCapabilityIds.isEmpty()) {
-                                onSelectionChange(allCapabilityIds)
-                            } else {
-                                onSelectionChange(
-                                    allCapabilityIds
-                                        .filterNot { it in selectedCapabilityIds }
-                                        .toSet()
-                                )
+                NgLongDrawerHeader(
+                    title = stringResource(R.string.ai_internal_mcp),
+                    centerTitle = true,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                NgFormPanel(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    AiAssistantSwitchRow(
+                        title = stringResource(R.string.ai_internal_mcp_enable),
+                        summary = stringResource(R.string.ai_internal_mcp_enable_summary),
+                        checked = enabled,
+                        onCheckedChange = onEnabledChange,
+                    )
+                    if (!enabled) return@NgFormPanel
+
+                    NgFormGroupDivider()
+                    if (!selectionEnabled) {
+                        modules.flatMap { it.capabilities }.forEach { capability ->
+                            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                Text(capability.title, style = MaterialTheme.typography.titleMedium)
+                                Text(capability.description, style = MaterialTheme.typography.bodySmall)
                             }
                         }
-                    ) {
-                        Text(selectionActionText)
+                        return@NgFormPanel
                     }
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f))
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(
-                        start = 12.dp,
-                        top = 8.dp,
-                        end = 12.dp,
-                        bottom = 20.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    modules.forEach { module ->
-                        item(key = "mcp-module-${module.id}") {
-                            val expanded = module.id in expandedModuleIds
-                            Column {
-                                AiChatMcpModuleHeader(
-                                    module = module,
-                                    selectedCapabilityIds = selectedCapabilityIds,
-                                    expanded = expanded,
-                                    onToggleExpanded = {
-                                        expandedModuleIds.toggleNgExpandedKey(module.id)
-                                    },
-                                    onSelectionChange = onSelectionChange
-                                )
-                                AnimatedVisibility(visible = expanded) {
-                                    NgExpandableChildGroup(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 4.dp),
-                                    ) {
-                                        module.capabilities.forEach { capability ->
-                                            AiChatMcpCapabilityRow(
-                                                capability = capability,
-                                                selected = capability.id in selectedCapabilityIds,
-                                                onToggle = {
-                                                    val next = selectedCapabilityIds.toMutableSet()
-                                                    if (!next.add(capability.id)) {
-                                                        next.remove(capability.id)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, top = 4.dp, end = 8.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.ai_internal_mcp_session_features),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "已选 ${selectedCapabilityIds.size} 项 · $selectedToolCount 个接口",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(
+                            enabled = allCapabilityIds.isNotEmpty(),
+                            onClick = {
+                                onSelectionChange(allCapabilityIds - selectedCapabilityIds)
+                            }
+                        ) {
+                            Text(selectionActionText)
+                        }
+                    }
+                    NgFormGroupDivider()
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false),
+                        contentPadding = PaddingValues(bottom = 6.dp)
+                    ) {
+                        modules.forEachIndexed { index, module ->
+                            item(key = "mcp-module-${module.id}") {
+                                val expanded = module.id in expandedModuleIds
+                                Column {
+                                    if (index > 0) NgFormGroupDivider()
+                                    AiChatMcpModuleHeader(
+                                        module = module,
+                                        selectedCapabilityIds = selectedCapabilityIds,
+                                        expanded = expanded,
+                                        onToggleExpanded = {
+                                            expandedModuleIds.toggleNgExpandedKey(module.id)
+                                        },
+                                        onSelectionChange = onSelectionChange
+                                    )
+                                    AnimatedVisibility(visible = expanded) {
+                                        Column {
+                                            module.capabilities.forEach { capability ->
+                                                AiChatMcpCapabilityRow(
+                                                    capability = capability,
+                                                    selected = capability.id in selectedCapabilityIds,
+                                                    onToggle = {
+                                                        val next = selectedCapabilityIds.toMutableSet()
+                                                        if (!next.add(capability.id)) {
+                                                            next.remove(capability.id)
+                                                        }
+                                                        onSelectionChange(next)
                                                     }
-                                                    onSelectionChange(next)
-                                                }
-                                            )
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -7706,7 +8680,8 @@ private fun AiChatMcpModuleHeader(
         expanded = expanded,
         onToggleExpanded = onToggleExpanded,
         onToggleSelection = toggleSelection,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        variant = NgExpandableListVariant.FORM_ROW,
     )
 }
 
@@ -7727,7 +8702,8 @@ private fun AiChatMcpCapabilityRow(
         selected = selected,
         badges = listOf(NgListBadge(capability.toolNames.size.toString())),
         onToggle = onToggle,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        variant = NgExpandableListVariant.FORM_ROW,
     )
 }
 
@@ -7735,12 +8711,13 @@ private fun AiChatMcpCapabilityRow(
 @Composable
 private fun AiChatInputAttachmentSheet(
     title: String,
-    description: String,
+    description: String? = null,
     emptyText: String,
     availableAttachments: List<AiChatInputAttachment>,
     loadedAttachmentIds: Set<String>,
     onAdd: (AiChatInputAttachment) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    centeredHeader: Boolean = false,
 ) {
     val baseSnapshot = NgTheme.snapshot
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -7763,16 +8740,22 @@ private fun AiChatInputAttachmentSheet(
                     .padding(horizontal = 18.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (centeredHeader) {
+                    NgLongDrawerHeader(title = title, centerTitle = true)
+                } else {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                if (description != null) {
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 AiChatAttachmentSheetSection(
                     emptyText = emptyText,
                     attachments = availableAttachments,
@@ -7803,6 +8786,7 @@ private fun AiChatAttachmentSheetSection(
         } else {
             attachments.forEach { attachment ->
                 val loaded = attachment.id in loadedAttachmentIds
+                val isSkill = attachment.type == AiChatInputAttachmentType.SKILL
                 Surface(
                     onClick = { if (!loaded) onAdd(attachment) },
                     enabled = !loaded,
@@ -7811,22 +8795,26 @@ private fun AiChatAttachmentSheetSection(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        modifier = Modifier.padding(
+                            horizontal = 14.dp,
+                            vertical = if (isSkill) 7.dp else 12.dp
+                        ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Icon(
-                            imageVector = when (attachment.type) {
-                                AiChatInputAttachmentType.CONTEXT -> Icons.Rounded.Description
-                                AiChatInputAttachmentType.SKILL -> Icons.Rounded.Psychology
+                            painter = if (isSkill) {
+                                painterResource(R.drawable.ic_ai_skill_puzzle)
+                            } else {
+                                rememberVectorPainter(Icons.Rounded.Description)
                             },
                             contentDescription = null,
-                            tint = if (attachment.type == AiChatInputAttachmentType.SKILL) {
+                            tint = if (isSkill) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             },
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(if (isSkill) 20.dp else 24.dp)
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
@@ -7914,6 +8902,8 @@ private fun FloatingSkillSuggestionPanel(
     }
 }
 
+private val ChatInputIconSize = 22.dp
+
 @Composable
 private fun InputModelIcon(
     @DrawableRes iconRes: Int,
@@ -7926,10 +8916,10 @@ private fun InputModelIcon(
         color = Color.Transparent
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Image(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                modifier = Modifier.size(22.dp)
+            AiModelLogo(
+                iconRes = iconRes,
+                contentDescription = stringResource(R.string.ai_model_select),
+                modifier = Modifier.size(ChatInputIconSize)
             )
         }
     }
@@ -7939,6 +8929,7 @@ private fun InputModelIcon(
 private fun InputDrawableIcon(
     @DrawableRes iconRes: Int,
     active: Boolean,
+    description: String? = null,
     onClick: () -> Unit
 ) {
     Surface(
@@ -7950,10 +8941,74 @@ private fun InputDrawableIcon(
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 painter = painterResource(iconRes),
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-                tint = if (active) MaterialTheme.colorScheme.primary else Color.Unspecified
+                contentDescription = description,
+                modifier = Modifier.size(ChatInputIconSize),
+                tint = when {
+                    active -> MaterialTheme.colorScheme.primary
+                    NgTheme.snapshot.isDark -> MaterialTheme.colorScheme.onSurface
+                    else -> Color.Unspecified
+                }
             )
+        }
+    }
+}
+
+@Composable
+internal fun AiChatWebButton(access: AiWebAccess, onClick: () -> Unit) {
+    val description = when (access) {
+        AiWebAccess.Disabled -> stringResource(R.string.ai_chat_web_disabled)
+        AiWebAccess.Unavailable -> stringResource(R.string.ai_chat_web_unavailable)
+        AiWebAccess.Native -> stringResource(R.string.ai_chat_web_native)
+        is AiWebAccess.External -> stringResource(R.string.ai_chat_web_external, access.name)
+    }
+    val accent = MaterialTheme.colorScheme.primary
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val background = aiChatContentCardColor()
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(34.dp).semantics { contentDescription = description },
+        shape = CircleShape,
+        color = Color.Transparent,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (access is AiWebAccess.External) {
+                Box(Modifier.size(ChatInputIconSize)) {
+                    Image(
+                        painter = painterResource(access.provider.iconRes),
+                        contentDescription = null,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                    Box(
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                            .padding(bottom = 2.dp)
+                            .size(12.dp)
+                            .background(background, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_cfg_web),
+                            contentDescription = null,
+                            modifier = Modifier.size(10.dp),
+                            tint = accent,
+                        )
+                    }
+                }
+            } else {
+                Icon(
+                    painter = painterResource(R.drawable.ic_cfg_web),
+                    contentDescription = null,
+                    modifier = Modifier.size(ChatInputIconSize).drawWithContent {
+                        drawContent()
+                        if (access == AiWebAccess.Disabled) {
+                            val start = Offset(size.width * 0.18f, size.height * 0.18f)
+                            val end = Offset(size.width * 0.82f, size.height * 0.82f)
+                            drawLine(background, start, end, 3.5.dp.toPx(), StrokeCap.Round)
+                            drawLine(muted, start, end, 1.5.dp.toPx(), StrokeCap.Round)
+                        }
+                    },
+                    tint = if (access == AiWebAccess.Native) accent else muted,
+                )
+            }
         }
     }
 }
@@ -7969,15 +9024,16 @@ private fun RikkaAssistantAvatar(
             .background(MaterialTheme.colorScheme.primaryContainer),
         contentAlignment = Alignment.Center
     ) {
-        Image(
-            painter = painterResource(iconRes),
+        AiModelLogo(
+            iconRes = iconRes,
             contentDescription = null,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(20.dp),
+            onDark = MaterialTheme.colorScheme.onPrimaryContainer,
         )
     }
 }
 
-private fun AiChatTurnResult.toUiMessage(elapsedMs: Long): ChatUiMessage {
+internal fun AiChatTurnResult.toUiMessage(elapsedMs: Long, modelSelection: AiModelSelection): ChatUiMessage {
     val meta = buildList {
         usage?.promptTokens?.let { add("↑ ${formatNumber(it)} tokens") }
         usage?.completionTokens?.let { add("↓ ${formatNumber(it)} tokens") }
@@ -7990,19 +9046,24 @@ private fun AiChatTurnResult.toUiMessage(elapsedMs: Long): ChatUiMessage {
     }.joinToString(" · ")
     return ChatUiMessage(
         role = ChatRole.ASSISTANT,
-        content = content.ifBlank { reasoning?.takeIf { it.isNotBlank() } ?: "模型未返回正文" },
+        content = content.ifBlank {
+            if (imageAssetIds.isNotEmpty() || toolReceipts.any { it.isCodexImage() }) ""
+            else reasoning?.takeIf { it.isNotBlank() } ?: "模型未返回正文"
+        },
         meta = meta,
         reasoning = reasoning,
         toolTrace = toolTrace,
         toolReceipts = toolReceipts,
+        imageAssetIds = imageAssetIds,
         memoryTrace = memoryTrace,
+        webActivity = webActivity,
         elapsedMs = elapsedMs,
         promptTokens = usage?.promptTokens,
         localPromptTokens = null,
         contextAnchorTokens = contextCalibration?.contextTokens,
         localContextAnchorTokens = contextCalibration?.localContextTokens,
-        usageProviderId = contextCalibration?.providerId,
-        usageModelId = contextCalibration?.modelId
+        usageProviderId = modelSelection.providerId,
+        usageModelId = modelSelection.modelId,
     )
 }
 
@@ -8041,14 +9102,6 @@ private fun formatNumber(value: Int): String {
     return "%,d".format(value)
 }
 
-private fun currentAssistantModelLabel(): String {
-    return AiAssistantConfigUi.selectedModelLabel()
-}
-
-private fun currentAssistantModelIconRes(): Int {
-    return AiAssistantConfigUi.selectedModelIconRes()
-}
-
 private fun shareChatMessage(context: Context, message: ChatUiMessage) {
     val text = message.content.ifBlank { message.reasoning.orEmpty() }.trim()
     if (text.isBlank()) {
@@ -8067,21 +9120,18 @@ private fun shareChatMessage(context: Context, message: ChatUiMessage) {
 
 private fun exportChatMessagesAsMarkdown(
     context: Context,
-    title: String,
-    messages: List<ChatUiMessage>
+    markdown: String,
 ): File {
     val file = createChatExportFile(context, "md")
-    file.writeText(buildChatExportMarkdown(title, messages), Charsets.UTF_8)
+    file.writeText(markdown, Charsets.UTF_8)
     return file
 }
 
 private fun exportChatMessagesAsImage(
     context: Context,
-    title: String,
-    messages: List<ChatUiMessage>
+    text: String,
 ): File {
     val file = createChatExportFile(context, "png")
-    val text = buildChatExportPlainText(title, messages)
     val bitmap = renderChatExportBitmap(text)
     FileOutputStream(file).use { output ->
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
@@ -8118,16 +9168,18 @@ private fun createChatExportFile(context: Context, extension: String): File {
     }
 }
 
-private fun buildChatExportMarkdown(title: String, messages: List<ChatUiMessage>): String {
+private fun buildChatExportMarkdown(
+    title: String,
+    messages: List<ChatUiMessage>,
+    senderLabel: (ChatUiMessage) -> String,
+): String {
     return buildString {
         append("# ").append(title).append("\n\n")
         append("*导出时间：")
             .append(SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()))
             .append("*\n\n")
         messages.forEach { message ->
-            append("## ")
-                .append(if (message.role == ChatRole.USER) "用户" else currentAssistantModelLabel())
-                .append("\n\n")
+            append("## ").append(senderLabel(message)).append("\n\n")
             if (!message.reasoning.isNullOrBlank()) {
                 append("> 已思考")
                 message.elapsedMs?.let { append(" ").append(formatElapsedSeconds(it)) }
@@ -8150,13 +9202,17 @@ private fun buildChatExportMarkdown(title: String, messages: List<ChatUiMessage>
     }
 }
 
-private fun buildChatExportPlainText(title: String, messages: List<ChatUiMessage>): String {
+private fun buildChatExportPlainText(
+    title: String,
+    messages: List<ChatUiMessage>,
+    senderLabel: (ChatUiMessage) -> String,
+): String {
     return buildString {
         append(title).append("\n")
         append(SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()))
         append("\n\n")
         messages.forEach { message ->
-            append(if (message.role == ChatRole.USER) "用户" else currentAssistantModelLabel()).append("：\n")
+            append(senderLabel(message)).append("：\n")
             if (!message.reasoning.isNullOrBlank()) {
                 append("已思考")
                 message.elapsedMs?.let { append(" ").append(formatElapsedSeconds(it)) }
@@ -8201,14 +9257,14 @@ private fun <T> MutableList<T>.replaceWith(newItems: List<T>) {
     addAll(newItems)
 }
 
-private fun MutableList<AiChatSessionSnapshot>.sortChatSessions() {
+internal fun MutableList<AiChatSessionSnapshot>.sortChatSessions() {
     sortWith(
         compareByDescending<AiChatSessionSnapshot> { it.isPinned }
             .thenByDescending { it.updatedAt }
     )
 }
 
-private fun MutableList<JsonObject>.replaceUploadMessages(
+internal fun MutableList<JsonObject>.replaceUploadMessages(
     session: AiChatSessionSnapshot,
     chatClient: AiChatClient
 ) {
@@ -8235,11 +9291,17 @@ private fun rebuildUploadMessages(
                     add(chatClient.newUserMessage(
                         AiChatContextManager.removeEmbeddedSkill(
                             message.uploadContent ?: message.content
-                        )
+                        ),
+                        message.imageAssetIds,
+                        message.directImageAction,
                     ))
                 }
                 ChatRole.ASSISTANT -> if (message.meta != "error" && message.contextCompaction == null) {
-                    add(chatClient.newAssistantMessage(message.content, message.reasoning))
+                    add(
+                        message.uploadContent?.let { draft ->
+                            AiChatContextManager.interruptedReplyMessage(message.id, draft)
+                        } ?: chatClient.newAssistantMessage(message.content, message.reasoning)
+                    )
                 }
             }
         }
@@ -8270,6 +9332,7 @@ private fun buildAgentSkillInputAttachments(): List<AiChatInputAttachment> {
 internal fun resolveEntryAgentMode(entrySource: String?): AgentModeDefinition {
     return when (entrySource) {
         AiChatActivity.ENTRY_BOOK_SCAN -> AgentModeRegistry.bookScan
+        AiChatActivity.ENTRY_BOOK_SEARCH -> AgentModeRegistry.bookSearch
         else -> AgentModeRegistry.general
     }
 }
@@ -8282,7 +9345,9 @@ private fun buildModeSkillInputAttachments(
     val workflowId = mode.systemWorkflowId
     val systemSkillIds = mode.availableSystemSkillIds
     val systemSkillSetHash = if (workflowId != null) {
-        requireNotNull(AiSkillPackageRegistry.systemPackageSet(systemSkillIds)) {
+        val packages = AiSkillPackageRegistry.systemPackageSet(systemSkillIds)
+        if (packages == null && mode.id == AgentModeRegistry.BOOK_SEARCH_ID) return emptyList()
+        requireNotNull(packages) {
             "System Skill Package 集合不存在：${systemSkillIds.joinToString()}"
         }.contentHash
     } else {
@@ -8311,6 +9376,7 @@ private fun buildModeSkillInputAttachments(
         else -> emptyList()
     }
     if (workflowId != null) {
+        if (mode.id == AgentModeRegistry.BOOK_SEARCH_ID && attachments.isEmpty()) return emptyList()
         check(attachments.size == 1) { "System Workflow 资源不存在：$workflowId" }
         check(
             McpInternalToolCatalog.normalizeCapabilityIds(
@@ -8323,7 +9389,7 @@ private fun buildModeSkillInputAttachments(
     return attachments
 }
 
-private fun resolveModeManagedCapabilities(
+internal fun resolveModeManagedCapabilities(
     mode: AgentModeDefinition,
     attachments: List<AiChatInputAttachment>
 ): List<String> {
@@ -8468,14 +9534,14 @@ private fun buildRuntimeRevisionToken(
         ?: "$id@$version"
 }
 
-private fun List<AiChatInputAttachment>.loadedSkillIds(): List<String> {
+internal fun List<AiChatInputAttachment>.loadedSkillIds(): List<String> {
     return filter { it.type == AiChatInputAttachmentType.SKILL }
         .map { it.id.removePrefix("skill.").trim() }
         .filter { it.isNotBlank() }
         .distinct()
 }
 
-private fun buildUserUploadContent(
+internal fun buildUserUploadContent(
     userContent: String,
     attachments: List<AiChatInputAttachment>
 ): String {
@@ -8495,36 +9561,15 @@ private fun buildUserUploadContent(
     }
 }
 
-private fun extractMatchingSnippet(
-    text: String,
-    query: String
-): String {
-    if (query.isBlank()) {
-        return text
-    }
-    val matchIndex = text.indexOf(query, ignoreCase = true)
-    if (matchIndex < 0) {
-        return text
-    }
-    val start = (matchIndex - 12).coerceAtLeast(0)
-    val end = (matchIndex + query.length + 72).coerceAtMost(text.length)
-    return buildString {
-        if (start > 0) append("...")
-        append(text.substring(start, end).replace(Regex("\\s+"), " "))
-        if (end < text.length) append("...")
-    }
-}
-
-private fun buildGlobalMessageSearchResults(
-    query: String,
+private suspend fun buildGlobalMessageSearchResults(
+    keyword: AiChatSearchQuery,
     sessions: List<AiChatSessionSnapshot>,
     activeSessionId: String?,
-    currentMessages: List<ChatUiMessage>
+    currentMessages: List<ChatUiMessage>,
+    markdown: Markwon,
 ): List<GlobalMessageSearchResult> {
-    val cleanQuery = query.trim()
-    if (cleanQuery.isBlank()) {
-        return emptyList()
-    }
+    val query = keyword.text
+    val searchContext = currentCoroutineContext()
     val activeSession = sessions.firstOrNull { it.id == activeSessionId }
     val activeTitle = currentMessages.deriveChatTitle()
         ?: activeSession?.title
@@ -8532,21 +9577,21 @@ private fun buildGlobalMessageSearchResults(
     val activeUpdatedAt = activeSession?.updatedAt ?: System.currentTimeMillis()
     val activeResults = currentMessages
         .mapIndexedNotNull { index, message ->
+            searchContext.ensureActive()
             if (message.loading) {
                 return@mapIndexedNotNull null
             }
             val corpus = message.searchCorpus()
-            if (!corpus.contains(cleanQuery, ignoreCase = true)) {
-                return@mapIndexedNotNull null
-            }
+            val start = corpus.indexOf(query, ignoreCase = true)
+            if (start < 0) return@mapIndexedNotNull null
             GlobalMessageSearchResult(
                 session = activeSession,
                 sessionId = activeSessionId,
                 sessionTitle = activeTitle,
                 messageId = message.id,
                 messageIndex = index,
-                roleLabel = if (message.role == ChatRole.USER) "用户" else "AI",
-                snippet = extractMatchingSnippet(corpus.trim().ifBlank { message.drawerPreview() }, cleanQuery),
+                isUser = message.role == ChatRole.USER,
+                snippet = keyword.excerpt(corpus, start until (start + query.length)),
                 updatedAt = activeUpdatedAt
             )
         }
@@ -8554,18 +9599,18 @@ private fun buildGlobalMessageSearchResults(
         .filterNot { it.id == activeSessionId }
         .flatMap { session ->
             session.messages.mapIndexedNotNull { index, message ->
+                searchContext.ensureActive()
                 val corpus = message.searchCorpus()
-                if (!corpus.contains(cleanQuery, ignoreCase = true)) {
-                    return@mapIndexedNotNull null
-                }
+                val start = corpus.indexOf(query, ignoreCase = true)
+                if (start < 0) return@mapIndexedNotNull null
                 GlobalMessageSearchResult(
                     session = session,
                     sessionId = session.id,
                     sessionTitle = session.title,
                     messageId = message.id,
                     messageIndex = index,
-                    roleLabel = if (message.role == AiChatMessageSnapshot.ROLE_USER) "用户" else "AI",
-                    snippet = extractMatchingSnippet(corpus.trim().ifBlank { message.drawerPreview() }, cleanQuery),
+                    isUser = message.role == AiChatMessageSnapshot.ROLE_USER,
+                    snippet = keyword.excerpt(corpus, start until (start + query.length)),
                     updatedAt = session.updatedAt
                 )
             }
@@ -8573,6 +9618,24 @@ private fun buildGlobalMessageSearchResults(
     return (activeResults + historyResults)
         .sortedByDescending { it.updatedAt }
         .take(100)
+        .map { result ->
+            searchContext.ensureActive()
+            if (result.isUser) return@map result
+            val body = if (result.sessionId == activeSessionId) {
+                currentMessages[result.messageIndex].content
+            } else {
+                result.session?.messages?.get(result.messageIndex)?.content
+            }
+            if (body == null || !body.contains(query, ignoreCase = true)) return@map result
+
+            // Parse the original body before cutting the excerpt and preserve hits in other fields.
+            val parts = ChatSearchSource(result.messageId, isUser = false, content = body)
+                .searchableParts(markdown)
+            val excerpt = parts.firstNotNullOfOrNull { (_, text) ->
+                keyword.findIn(text)?.let { keyword.excerpt(text, it.range) }
+            }
+            if (excerpt != null) result.copy(snippet = excerpt) else result
+        }
 }
 
 private fun ChatUiMessage.searchCorpus(): String {
@@ -8601,35 +9664,7 @@ private fun formatChatSearchTime(timeMillis: Long): String {
     return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timeMillis))
 }
 
-private fun buildHighlightedText(
-    text: String,
-    query: String,
-    highlightColor: Color
-): AnnotatedString {
-    if (query.isBlank()) {
-        return AnnotatedString(text)
-    }
-    val builder = AnnotatedString.Builder()
-    var cursor = 0
-    while (cursor < text.length) {
-        val matchIndex = text.indexOf(query, cursor, ignoreCase = true)
-        if (matchIndex < 0) {
-            builder.append(text.substring(cursor))
-            break
-        }
-        if (matchIndex > cursor) {
-            builder.append(text.substring(cursor, matchIndex))
-        }
-        val matchEnd = matchIndex + query.length
-        builder.pushStyle(SpanStyle(background = highlightColor))
-        builder.append(text.substring(matchIndex, matchEnd))
-        builder.pop()
-        cursor = matchEnd
-    }
-    return builder.toAnnotatedString()
-}
-
-private fun List<ChatUiMessage>.deriveChatTitle(): String? {
+internal fun List<ChatUiMessage>.deriveChatTitle(): String? {
     val source = firstOrNull { it.role == ChatRole.USER }?.content
         ?: firstOrNull { it.content.isNotBlank() }?.content
         ?: return null
@@ -8711,8 +9746,8 @@ private fun AiChatSessionSnapshot.drawerIdentity(
         .asReversed()
         .firstOrNull { it.content.isNotBlank() }
         ?.drawerPreview()
-        .orEmpty()
-        .takeUnless { it == title || it == titleText }
+        ?.takeIf { it.isNotBlank() && it != title && it != titleText }
+        ?: "草稿".takeIf { modeId == AgentModeRegistry.BOOK_SEARCH_ID && modeEntryContext.bookSearchDraft() != null }
     val subtitle = listOfNotNull(
         formatDrawerHistoryTime(updatedAt),
         preview
@@ -8958,7 +9993,7 @@ private fun String?.parseAiTokenStats(): AiTokenStats {
     )
 }
 
-private fun List<ChatUiMessage>.latestPromptUsageAnchor(): AiChatPromptUsageAnchor? {
+internal fun List<ChatUiMessage>.latestPromptUsageAnchor(): AiChatPromptUsageAnchor? {
     val latestCompactionIndex = indexOfLast { it.contextCompaction != null }
     val anchorIndex = indices.lastOrNull { index ->
         val message = get(index)
@@ -9037,7 +10072,7 @@ private fun AiChatMessageSnapshot.drawerPreview(): String {
         ?: "收藏消息"
 }
 
-private fun ChatUiMessage.toSnapshot(): AiChatMessageSnapshot {
+internal fun ChatUiMessage.toSnapshot(): AiChatMessageSnapshot {
     return AiChatMessageSnapshot(
         id = id,
         role = when (role) {
@@ -9050,6 +10085,8 @@ private fun ChatUiMessage.toSnapshot(): AiChatMessageSnapshot {
         toolTrace = toolTrace,
         toolReceipts = toolReceipts,
         memoryTrace = memoryTrace,
+        webActivity = webActivity?.settledOrNull(),
+        bookSearch = bookSearch,
         elapsedMs = elapsedMs,
         favorite = favorite,
         deliveryState = deliveryState.snapshotValue,
@@ -9067,11 +10104,13 @@ private fun ChatUiMessage.toSnapshot(): AiChatMessageSnapshot {
         contextCompactionAfterTokens = contextCompaction?.afterTokens,
         contextCompactionRevision = contextCompaction?.revision,
         contextCompactionSummaryPromptTokens = contextCompaction?.summaryPromptTokens,
-        contextCompactionSummaryCompletionTokens = contextCompaction?.summaryCompletionTokens
+        contextCompactionSummaryCompletionTokens = contextCompaction?.summaryCompletionTokens,
+        imageAssetIds = imageAssetIds.takeIf { it.isNotEmpty() },
+        directImageAction = directImageAction,
     )
 }
 
-private fun AiChatMessageSnapshot.toUiMessage(): ChatUiMessage {
+internal fun AiChatMessageSnapshot.toUiMessage(): ChatUiMessage {
     return ChatUiMessage(
         id = id.ifBlank { UUID.randomUUID().toString() },
         role = when (role) {
@@ -9079,11 +10118,19 @@ private fun AiChatMessageSnapshot.toUiMessage(): ChatUiMessage {
             else -> ChatRole.ASSISTANT
         },
         content = content,
+        imageAssetIds = imageAssetIds.orEmpty(),
+        directImageAction = directImageAction,
         meta = meta,
         reasoning = reasoning,
         toolTrace = toolTrace.orEmpty(),
         toolReceipts = toolReceipts.orEmpty(),
         memoryTrace = memoryTrace.orEmpty(),
+        webActivity = webActivity?.settledOrNull(),
+        bookSearch = bookSearch?.let { reply ->
+            if (reply.lookup?.status == AiBookSourceStatus.RUNNING) {
+                reply.copy(lookup = reply.lookup.copy(status = AiBookSourceStatus.INTERRUPTED))
+            } else reply
+        },
         elapsedMs = elapsedMs,
         favorite = favorite,
         deliveryState = ChatDeliveryState.fromSnapshot(
@@ -9114,7 +10161,7 @@ private fun AiChatMessageSnapshot.toUiMessage(): ChatUiMessage {
     )
 }
 
-private data class ChatUiMessage(
+internal data class ChatUiMessage(
     val id: String = UUID.randomUUID().toString(),
     val role: ChatRole,
     val content: String,
@@ -9123,6 +10170,8 @@ private data class ChatUiMessage(
     val toolTrace: List<String> = emptyList(),
     val toolReceipts: List<ToolExecutionReceipt> = emptyList(),
     val memoryTrace: List<AiMemoryTraceItem> = emptyList(),
+    val webActivity: AiWebActivity? = null,
+    val bookSearch: AiBookSearchReply? = null,
     val elapsedMs: Long? = null,
     val favorite: Boolean = false,
     val loading: Boolean = false,
@@ -9137,7 +10186,10 @@ private data class ChatUiMessage(
     val localContextAnchorTokens: Int? = null,
     val usageProviderId: String? = null,
     val usageModelId: String? = null,
-    val contextCompaction: AiChatCompactionRecord? = null
+    val contextCompaction: AiChatCompactionRecord? = null,
+    val imageAssetIds: List<String> = emptyList(),
+    val directImageAction: Boolean = false,
+    val imageWait: AiChatImageWait? = null,
 )
 
 private data class AiChatContextSessionUsage(
@@ -9228,7 +10280,7 @@ private data class GlobalMessageSearchResult(
     val sessionTitle: String,
     val messageId: String,
     val messageIndex: Int,
-    val roleLabel: String,
+    val isUser: Boolean,
     val snippet: String,
     val updatedAt: Long
 )
@@ -9243,17 +10295,12 @@ private enum class ChatExportFormat(val mimeType: String) {
     IMAGE("image/png")
 }
 
-private data class ChatPreviewItem(
-    val originalIndex: Int,
-    val message: ChatUiMessage
-)
-
-private enum class ChatRole {
+internal enum class ChatRole {
     USER,
     ASSISTANT
 }
 
-private enum class ChatDeliveryState(val snapshotValue: String) {
+internal enum class ChatDeliveryState(val snapshotValue: String) {
     SENT(AiChatMessageSnapshot.DELIVERY_SENT),
     QUEUED(AiChatMessageSnapshot.DELIVERY_QUEUED),
     IN_FLIGHT(AiChatMessageSnapshot.DELIVERY_IN_FLIGHT),
@@ -9272,7 +10319,7 @@ private enum class ChatDeliveryState(val snapshotValue: String) {
     }
 }
 
-private fun formatContextTokens(tokens: Int): String {
+internal fun formatContextTokens(tokens: Int): String {
     return "${formatContextTokenValue(tokens)} tokens"
 }
 

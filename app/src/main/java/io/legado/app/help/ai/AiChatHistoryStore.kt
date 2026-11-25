@@ -34,7 +34,7 @@ object AiChatHistoryStore {
     fun loadIndex(): AiChatHistoryState {
         return synchronized(lock) {
             migrateLegacyFileIfNeeded()
-            val sessions = appDb.aiChatDao.getConversationMetadata(MAX_SESSIONS)
+            val sessions = selectChatHistoryMetadata(MAX_SESSIONS, ::hasImageDraft, appDb.aiChatDao::getConversationMetadata)
                 .map { it.toSummarySnapshot() }
             val activeId = appCtx.getPrefString(PreferKey.aiChatActiveSessionId)
                 ?.takeIf { id -> sessions.any { it.id == id } }
@@ -57,12 +57,7 @@ object AiChatHistoryStore {
         }
     }
 
-    fun deleteSession(sessionId: String) {
-        synchronized(lock) {
-            appDb.aiChatDao.deleteMessageNodes(sessionId)
-            appDb.aiChatDao.deleteConversation(sessionId)
-        }
-    }
+    fun deleteSession(sessionId: String) = deleteSessions(listOf(sessionId))
 
     fun setActiveSessionId(sessionId: String?) {
         synchronized(lock) {
@@ -95,9 +90,9 @@ object AiChatHistoryStore {
 
     fun loadAllSessionDetails(): List<AiChatSessionSnapshot> {
         return synchronized(lock) {
-            appDb.aiChatDao.getConversations(MAX_SESSIONS)
+            val dao = appDb.aiChatDao
+            dao.readConversations(selectChatHistoryMetadata(MAX_SESSIONS, ::hasImageDraft, dao::getConversationMetadata))
                 .map { it.toSnapshot() }
-                .filter { it.messages.isNotEmpty() || it.modeEntryContext != null }
         }
     }
 
@@ -109,21 +104,36 @@ object AiChatHistoryStore {
 
     fun deleteSessions(sessionIds: Collection<String>) {
         synchronized(lock) {
+            val imageOwners = mutableSetOf<String>()
             sessionIds
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .distinct()
                 .forEach { sessionId ->
+                    imageOwners += sessionId
+                    appDb.aiChatDao.getMessageNodes(sessionId)
+                        .filter { CODEX_IMAGE_TOOL in it.messages }
+                        .flatMap { it.toMessages() }
+                        .flatMap { it.toolReceipts.orEmpty() }
+                        .filter { it.isCodexImage() }
+                        .mapTo(imageOwners) { it.conversationId }
                     appDb.aiChatDao.deleteMessageNodes(sessionId)
                     appDb.aiChatDao.deleteConversation(sessionId)
+                    AiChatImageDrafts.write(sessionId, null)
                 }
+            imageOwners.forEach { ownerId ->
+                deleteUnusedCodexImages(ownerId) {
+                    appDb.aiChatDao.hasToolReceiptOwner("\"conversation_id\":${GSON.toJson(ownerId)}")
+                }
+            }
         }
     }
 
     fun saveDurableTurn(
         baseSession: AiChatSessionSnapshot,
         assistantMessageId: String,
-        update: AiChatDurableContextUpdate
+        update: AiChatDurableContextUpdate,
+        modelSelection: AiModelSelection,
     ) {
         if (baseSession.id.isBlank() || assistantMessageId.isBlank()) return
         synchronized(lock) {
@@ -132,7 +142,8 @@ object AiChatHistoryStore {
                     baseSession = baseSession,
                     assistantMessageId = assistantMessageId,
                     update = update,
-                    now = System.currentTimeMillis()
+                    now = System.currentTimeMillis(),
+                    modelSelection = modelSelection,
                 ).sanitize()
             )
         }
@@ -142,13 +153,17 @@ object AiChatHistoryStore {
         baseSession: AiChatSessionSnapshot,
         assistantMessageId: String,
         update: AiChatDurableContextUpdate,
-        now: Long
+        now: Long,
+        modelSelection: AiModelSelection? = null,
+        assistantMessageIndex: Int? = null,
     ): AiChatSessionSnapshot {
         val messages = baseSession.messages
             .filterNot { message -> message.id == assistantMessageId }
             .toMutableList()
-        if (update.visibleContent.isNotBlank()) {
-            messages += AiChatMessageSnapshot(
+        if (update.visibleContent.isNotBlank() || update.imageAssetIds.isNotEmpty() ||
+            update.toolReceipts.any { it.isCodexImage() }
+        ) {
+            val assistant = AiChatMessageSnapshot(
                 id = assistantMessageId,
                 role = AiChatMessageSnapshot.ROLE_ASSISTANT,
                 content = update.visibleContent,
@@ -160,8 +175,13 @@ object AiChatHistoryStore {
                 reasoning = update.reasoning,
                 toolTrace = update.toolTrace,
                 toolReceipts = update.toolReceipts,
-                deliveryState = AiChatMessageSnapshot.DELIVERY_IN_FLIGHT
+                imageAssetIds = update.imageAssetIds,
+                webActivity = update.webActivity,
+                deliveryState = AiChatMessageSnapshot.DELIVERY_IN_FLIGHT,
+                usageProviderId = modelSelection?.providerId,
+                usageModelId = modelSelection?.modelId,
             )
+            messages.add(assistantMessageIndex?.coerceIn(0, messages.size) ?: messages.size, assistant)
         }
         return baseSession.copy(
             updatedAt = now,
@@ -210,7 +230,7 @@ object AiChatHistoryStore {
             isPinned = isPinned,
             loadedSkillIds = GSON.toJson(loadedSkillIds),
             enabledMcpCapabilityIds = GSON.toJson(enabledMcpCapabilityIds),
-            uploadMessages = GSON.toJson(uploadMessages)
+            uploadMessages = GSON.toJson(uploadMessages),
         )
     }
 
@@ -242,7 +262,7 @@ object AiChatHistoryStore {
             messages = messages,
             loadedSkillIds = loadedSkillIds.toStringList(),
             enabledMcpCapabilityIds = enabledMcpCapabilityIds.toStringList(),
-            uploadMessages = uploadMessages.toUploadMessages()
+            uploadMessages = uploadMessages.toUploadMessages(),
         ).sanitize()
     }
 
@@ -260,7 +280,7 @@ object AiChatHistoryStore {
             messages = emptyList(),
             loadedSkillIds = loadedSkillIds.toStringList(),
             enabledMcpCapabilityIds = enabledMcpCapabilityIds.toStringList(),
-            uploadMessages = emptyList()
+            uploadMessages = emptyList(),
         ).sanitize()
     }
 
@@ -310,8 +330,15 @@ object AiChatHistoryStore {
         val mode = normalizedAgentModeIdentity()
         val cleanEntryContext = modeEntryContext?.validatedCopyOrNull()
         val cleanMessages = recoverLegacyVisibleMessages(messages.filter {
-            it.role.isNotBlank() && it.content.isNotBlank()
-        }, uploadMessages).toMutableList()
+            it.role.isNotBlank() && (it.content.isNotBlank() || it.imageAssetIds.orEmpty().isNotEmpty() ||
+                it.toolReceipts.orEmpty().any { receipt -> receipt.isCodexImage() })
+        }, uploadMessages).map { message ->
+            if (mode.id != AgentModeRegistry.BOOK_SEARCH_ID || message.role != AiChatMessageSnapshot.ROLE_ASSISTANT) {
+                message
+            } else {
+                message.copy(content = aiBookSearchVisibleText(message.content).ifBlank { "AI 搜书" })
+            }
+        }
         val cleanTitle = title.ifBlank {
             cleanEntryContext?.title?.takeIf { it.isNotBlank() }
                 ?: cleanMessages.firstOrNull { it.role == AiChatMessageSnapshot.ROLE_USER }
@@ -360,7 +387,7 @@ object AiChatHistoryStore {
                 return@map normalizedMessage
             }
             if (normalizedMessage.role != AiChatMessageSnapshot.ROLE_ASSISTANT ||
-                normalizedMessage.contextCompactionRevision != null
+                normalizedMessage.contextCompactionRevision != null || normalizedMessage.imageAssetIds.orEmpty().isNotEmpty()
             ) return@map normalizedMessage
             val uploadTurn = uploadTurns.getOrNull(userTurnIndex) ?: return@map normalizedMessage
             AiChatVisibleContentRecovery.recoverFromUploadHistory(
@@ -388,6 +415,34 @@ object AiChatHistoryStore {
         }
     }
 }
+
+internal fun hasChatHistoryContent(
+    hasMessages: Boolean,
+    modeEntryStarted: Boolean,
+    bookSearchDraft: String? = null,
+): Boolean = hasMessages || modeEntryStarted || !bookSearchDraft.isNullOrBlank()
+
+internal fun selectChatHistoryMetadata(
+    limit: Int,
+    hasImageDraft: (String) -> Boolean = { false },
+    loadPage: (limit: Int, offset: Int) -> List<AiChatConversationMetadata>,
+): List<AiChatConversationMetadata> = buildList {
+    var offset = 0
+    while (size < limit) {
+        val page = loadPage(limit, offset)
+        // The index omits message bodies. A missing preview is not evidence of an empty session.
+        val listed = page.asSequence().filter { metadata ->
+            hasChatHistoryContent(metadata.hasMessageNodes, metadata.modeEntryStarted) || hasImageDraft(metadata.id) ||
+                (metadata.assistantId.trim() == AgentModeRegistry.BOOK_SEARCH_ID &&
+                    AgentModeEntryContext.fromJsonOrNull(metadata.modeEntryContext).bookSearchDraft() != null)
+        }
+        addAll(listed.take(limit - size))
+        if (page.size < limit) break
+        offset += page.size
+    }
+}
+
+private fun hasImageDraft(id: String): Boolean = AiChatImageDrafts.read(id)?.hasAttachments == true
 
 data class AiChatHistoryState(
     @SerializedName("version")
@@ -424,7 +479,7 @@ data class AiChatSessionSnapshot(
     @SerializedName("enabled_mcp_capability_ids")
     val enabledMcpCapabilityIds: List<String> = emptyList(),
     @SerializedName("upload_messages")
-    val uploadMessages: List<JsonObject> = emptyList()
+    val uploadMessages: List<JsonObject> = emptyList(),
 ) {
     fun normalizedAgentModeIdentity(): AgentModeIdentity {
         return AgentModeRegistry.normalizePersistedIdentity(modeId, modeRevision)
@@ -448,6 +503,10 @@ data class AiChatMessageSnapshot(
     val toolReceipts: List<ToolExecutionReceipt>? = emptyList(),
     @SerializedName("memory_trace")
     val memoryTrace: List<AiMemoryTraceItem>? = emptyList(),
+    @SerializedName("web_activity")
+    val webActivity: AiWebActivity? = null,
+    @SerializedName("book_search")
+    val bookSearch: AiBookSearchReply? = null,
     @SerializedName("elapsed_ms")
     val elapsedMs: Long? = null,
     @SerializedName("favorite")
@@ -483,7 +542,11 @@ data class AiChatMessageSnapshot(
     @SerializedName("context_compaction_summary_prompt_tokens")
     val contextCompactionSummaryPromptTokens: Int? = null,
     @SerializedName("context_compaction_summary_completion_tokens")
-    val contextCompactionSummaryCompletionTokens: Int? = null
+    val contextCompactionSummaryCompletionTokens: Int? = null,
+    @SerializedName("image_asset_ids")
+    val imageAssetIds: List<String>? = null,
+    @SerializedName("direct_image_action")
+    val directImageAction: Boolean = false,
 ) {
     companion object {
         const val ROLE_USER = "user"

@@ -132,6 +132,15 @@ object AiChatInteractionParser {
         pattern = """(?s)```[ \t]*legado-interaction[^\r\n]*(?:\r?\n.*)?$"""
     )
 
+    internal fun streamingText(content: String): String {
+        val hiddenStart = listOfNotNull(
+            partialBlockRegex.find(content)?.range?.first,
+            partialHiddenBlockRegex.find(content)?.range?.first,
+            content.indexOf("<legado-interaction>").takeIf { it >= 0 },
+        ).minOrNull()
+        return if (hiddenStart == null) content else content.take(hiddenStart)
+    }
+
     fun parse(content: String): AiChatInteractionRender {
         val fencedBlocks = findParsedBlocks(content, blockRegex)
         val fencedInteractions = fencedBlocks.map { it.interaction }
@@ -588,6 +597,9 @@ internal object AiChatTurnContent {
 internal object AiChatToolStepContent {
 
     private val providerProtocolMarkers = listOf("<｜DSML｜", "<|DSML|")
+    private val providerProtocolPrefixes = providerProtocolMarkers
+        .flatMap { marker -> (1 until marker.length).map(marker::take) }
+        .distinct().sortedByDescending(String::length)
     private const val MIN_RECOVERABLE_CONTENT_LENGTH = 80
 
     fun containsProviderProtocol(content: String): Boolean {
@@ -601,6 +613,12 @@ internal object AiChatToolStepContent {
             .minOrNull()
             ?: return content
         return content.substring(0, markerIndex).trimEnd()
+    }
+
+    fun streamingProjection(content: String): String {
+        val text = AiChatInteractionParser.streamingText(providerProjection(content))
+        val trailingMarker = providerProtocolPrefixes.firstOrNull { text.endsWith(it) }
+        return if (trailingMarker == null) text else text.dropLast(trailingMarker.length)
     }
 
     fun recoveryCandidate(content: String): String? {
@@ -674,7 +692,10 @@ object AiChatVisibleContentRecovery {
         }
         val earlierContent = uploadMessages.asSequence()
             .drop(lastUserIndex + 1)
-            .filter { message -> message.get("role")?.asString == "assistant" }
+            .filter { message ->
+                message.get("role")?.asString == "assistant" &&
+                    !AiChatContextManager.isInterruptedReply(message)
+            }
             .mapNotNull { message -> message.get("content")?.takeIf { !it.isJsonNull }?.asString }
             .filter { content -> content != finalContent }
             .maxByOrNull { content -> AiChatInteractionParser.parse(content).content.length }

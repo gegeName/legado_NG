@@ -1,6 +1,7 @@
 package io.legado.app.ui.config
 
 import io.legado.app.R
+import io.legado.app.help.ai.AiDefaultProviders
 import io.legado.app.help.ai.AiModel
 import io.legado.app.help.ai.AiProviderSetting
 import io.legado.app.help.ai.AiProviderType
@@ -34,6 +35,22 @@ class AiModelSelectionTabsTest {
     }
 
     @Test
+    fun streamingHintIsOnlyShownWhereStreamingCanBeConfigured() {
+        val defaults = AiDefaultProviders.all()
+        val subscription = defaults.first { it.id == AiDefaultProviders.CHATGPT_ID }
+        val bailian = defaults.first { it.id == "aliyun_bailian" }
+        val chatGptItem = subscription.toModelSelectionProviderUiModel(
+            listOf(AiModel("gpt-6.2-sol")), showGenerationHints = true,
+        ).models.single()
+        val bailianItem = bailian.toModelSelectionProviderUiModel(
+            listOf(AiModel("qwen3-235b-a22b")), showGenerationHints = true,
+        ).models.single()
+
+        assertNull(chatGptItem.generationHintRes)
+        assertEquals(R.string.ai_model_streaming_only, bailianItem.generationHintRes)
+    }
+
+    @Test
     fun updatingOneCatalogKeepsOtherProviderResultsAndOrder() {
         val state = AiModelSelectionSheetState(
             title = "Model", emptyText = null, providers = providers,
@@ -62,22 +79,10 @@ class AiModelSelectionTabsTest {
             title = "Model", emptyText = null, providers = providers,
             selectedProviderId = "second", selectedModelId = "shared",
         )
-        val target = state.selectedTarget(includeFollowAssistant = false)!!
-        assertEquals(AiModelSelectionPosition("provider:second", 1), target.position(providers, false))
-        assertEquals(AiModelSelectionPosition("provider:second", 0), target.position(providers.filterModels("Gamma"), false))
-        assertNull(target.position(providers.filterModels("Alpha"), false))
-    }
-
-    @Test
-    fun followAssistantRemainsASelectableAndLocatablePage() {
-        val state = AiModelSelectionSheetState(
-            title = "Model", emptyText = null, providers = providers,
-            followAssistantLabel = "Follow chat model", followAssistantSelected = true,
-        )
-        val target = state.selectedTarget(includeFollowAssistant = true)!!
-        assertEquals(AiModelSelectionPosition("follow-assistant", 0), target.position(providers, true))
-        assertNull(target.position(providers, false))
-        assertNull(state.selectedTarget(includeFollowAssistant = false))
+        val target = state.selectedTarget()!!
+        assertEquals(AiModelSelectionPosition("provider:second", 1), target.position(providers))
+        assertEquals(AiModelSelectionPosition("provider:second", 0), target.position(providers.filterModels("Gamma")))
+        assertNull(target.position(providers.filterModels("Alpha")))
     }
 
     private fun provider(id: String, name: String, vararg models: AiModelSelectionItemUiModel) =

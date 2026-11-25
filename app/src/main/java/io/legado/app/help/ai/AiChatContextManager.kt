@@ -6,6 +6,9 @@ import com.google.gson.JsonParser
 import com.google.gson.annotations.SerializedName
 import io.legado.app.help.ai.runtime.AgentSkillRuntimeDeclaration
 import io.legado.app.utils.GSON
+import kotlinx.coroutines.CancellationException
+import java.io.IOException
+import java.net.SocketTimeoutException
 import kotlin.math.ceil
 
 object AiChatContextManager {
@@ -20,6 +23,7 @@ object AiChatContextManager {
     const val SKILL_HEADING = "## 已加载 Skill\n"
     const val USER_MESSAGE_HEADING = "## 用户消息\n"
     private const val MAX_RECENT_USER_TOKENS = 20_000
+    private const val INTERRUPTED_REPLY_ID = "_legado_interrupted_reply_id"
 
     fun syncActiveSkill(
         messages: MutableList<JsonObject>,
@@ -102,8 +106,60 @@ object AiChatContextManager {
             message.contentText().startsWith(ACTIVE_SKILL_PREFIX)
     }
 
+    internal fun interruptedReplyContent(text: String, cause: Throwable): String? {
+        val visibleText = AiChatInteractionParser.parse(AiChatToolStepContent.providerProjection(text))
+            .content.takeIf(String::isNotBlank) ?: return null
+        val reason = when (cause) {
+            is AiAssistantReplyEndException -> when (cause.reason) {
+                AiAssistantReplyEndReason.TRUNCATED -> "输出达到上限"
+                AiAssistantReplyEndReason.INTERRUPTED -> "回复中断"
+                AiAssistantReplyEndReason.REFUSED -> return null
+            }
+            is CancellationException -> "生成已停止"
+            is AiChatStreamResponseException -> "服务商返回错误"
+            is SocketTimeoutException -> "网络超时"
+            is IOException -> "网络读取中断"
+            else -> "生成异常"
+        }
+        return "这条助理回复未完成（$reason）。以下是中断前的草稿。\n\n$visibleText"
+    }
+
+    internal fun interruptedReplyMessage(id: String, uploadContent: String) = JsonObject().apply {
+        addProperty("role", "assistant")
+        addProperty("content", uploadContent)
+        addProperty(INTERRUPTED_REPLY_ID, id)
+    }
+
+    internal fun isInterruptedReply(message: JsonObject): Boolean = message.has(INTERRUPTED_REPLY_ID)
+
+    internal fun providerMessages(
+        messages: List<JsonObject>,
+        turnSystemInstruction: String? = null,
+    ): JsonArray = JsonArray().apply {
+        messages.forEach { add(providerMessage(it)) }
+        if (turnSystemInstruction != null) {
+            val system = firstOrNull()?.asJsonObject?.takeIf { it.role() == "system" }
+            val prompt = system?.get("content")
+                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+            if (system != null && prompt != null) {
+                val content = if (prompt.isBlank()) turnSystemInstruction else "$prompt\n\n$turnSystemInstruction"
+                system.addProperty("content", content)
+            } else {
+                asList().add(0, JsonObject().apply {
+                    addProperty("role", "system")
+                    addProperty("content", turnSystemInstruction)
+                })
+            }
+        }
+    }
+
     fun providerMessage(message: JsonObject): JsonObject {
-        if (!isActiveSkillMessage(message)) return message.deepCopy().asJsonObject
+        if (!isActiveSkillMessage(message)) {
+            return message.deepCopy().apply {
+                remove(INTERRUPTED_REPLY_ID)
+                stripChatImageAssets()
+            }
+        }
         val snapshot = activeSkillSnapshot(listOf(message))
             ?: return message.deepCopy().asJsonObject
         return JsonObject().apply {
@@ -200,14 +256,14 @@ object AiChatContextManager {
     fun usage(
         messages: List<JsonObject>,
         toolDefinitions: List<JsonObject> = emptyList(),
-        calibration: AiChatTokenCalibration? = null
+        calibration: AiChatTokenCalibration? = null,
+        contextWindow: Int = AiConfig.assistantContextWindowTokens,
     ): AiChatContextUsage {
-        val contextWindow = AiConfig.assistantContextWindowTokens
         val thresholdPercent = AiConfig.contextCompactionThresholdPercent
         val threshold = if (thresholdPercent == 0) {
             contextWindow
         } else {
-            contextWindow * thresholdPercent / 100
+            (contextWindow.toLong() * thresholdPercent / 100).toInt()
         }
         val breakdown = breakdown(messages, toolDefinitions)
         val localEstimatedTokens = breakdown.totalTokens
@@ -238,7 +294,7 @@ object AiChatContextManager {
         }
         if (actualToolCallCount < expectedToolCallCount) return null
         val anchorIndex = messages.indexOfLast { message ->
-            message.role() == "assistant" && !message.has("tool_calls")
+            message.role() == "assistant" && !message.has("tool_calls") && !isInterruptedReply(message)
         }
         if (anchorIndex <= 0) return null
         val localPromptTokens = breakdown(
@@ -324,7 +380,9 @@ object AiChatContextManager {
         var protocolTokens = 0
 
         messages.forEach { message ->
-            val fullTokens = estimateTokens(listOf(message))
+            val fullTokens = estimateTokens(listOf(
+                if (isInterruptedReply(message)) providerMessage(message) else message
+            ))
             val role = message.role()
             if (role == "tool" || message.has("tool_calls")) {
                 toolTokens += fullTokens
@@ -388,7 +446,16 @@ object AiChatContextManager {
 
     fun estimateTokens(messages: List<JsonObject>): Int {
         return messages.sumOf { message ->
-            estimateTextTokens(message.toString()) + MESSAGE_OVERHEAD_TOKENS
+            val estimatedMessage = if (message.has(AI_NATIVE_HISTORY)) {
+                JsonObject().apply {
+                    message.entrySet().forEach { (key, value) ->
+                        if (key != AI_NATIVE_HISTORY) add(key, value)
+                    }
+                }
+            } else {
+                message
+            }
+            estimateTextTokens(estimatedMessage.toString()) + MESSAGE_OVERHEAD_TOKENS
         }
     }
 
@@ -428,7 +495,8 @@ object AiChatContextManager {
     fun historyForRegeneration(
         messages: List<JsonObject>,
         targetRole: String,
-        targetContent: String
+        targetContent: String,
+        targetInterruptedReplyId: String? = null
     ): List<JsonObject>? {
         val anchorIndex = when (targetRole) {
             "user" -> messages.indexOfLast { message ->
@@ -437,9 +505,14 @@ object AiChatContextManager {
 
             "assistant" -> {
                 val assistantIndex = messages.indexOfLast { message ->
-                    message.role() == "assistant" &&
-                        !message.has("tool_calls") &&
-                        message.contentText() == targetContent
+                    if (targetInterruptedReplyId != null) {
+                        message.stringContent(INTERRUPTED_REPLY_ID) == targetInterruptedReplyId
+                    } else {
+                        message.role() == "assistant" &&
+                            !message.has("tool_calls") &&
+                            !isInterruptedReply(message) &&
+                            message.contentText() == targetContent
+                    }
                 }
                 if (assistantIndex < 0) {
                     -1
@@ -460,24 +533,44 @@ object AiChatContextManager {
         messages: List<JsonObject>,
         summary: String,
         pinnedArtifactRefs: Set<String> = emptySet(),
-        recentUserTokenBudget: Int = minOf(
-            MAX_RECENT_USER_TOKENS,
-            (AiConfig.assistantContextWindowTokens * 0.2f).toInt()
-        )
+        recentUserTokenBudget: Int? = null,
+        contextWindow: Int? = null,
     ): List<JsonObject> {
+        val userTokenBudget = recentUserTokenBudget ?: minOf(
+            MAX_RECENT_USER_TOKENS,
+            (contextWindow ?: AiConfig.assistantContextWindowTokens) / 5,
+        )
         val systems = messages
             .filter { it.role() == "system" }
             .map { it.deepCopy().asJsonObject }
         var used = 0
-        val recentUsers = mutableListOf<JsonObject>()
-        messages.asReversed().forEach { message ->
+        val recentIndexes = mutableSetOf<Int>()
+        messages.indices.reversed().forEach { index ->
+            val message = messages[index]
             if (message.role() != "user" || message.isCompactionSummary()) return@forEach
             val tokens = estimateTokens(listOf(message))
-            if (tokens > recentUserTokenBudget ||
-                used + tokens > recentUserTokenBudget
+            if (tokens > userTokenBudget ||
+                used + tokens > userTokenBudget
             ) return@forEach
-            recentUsers += message.deepCopy().asJsonObject
             used += tokens
+            recentIndexes += index
+        }
+        val draftIndexes = buildList {
+            var keepDraftsForUser = false
+            messages.forEachIndexed { index, message ->
+                if (message.role() == "user") {
+                    keepDraftsForUser = index in recentIndexes
+                } else if (keepDraftsForUser && isInterruptedReply(message)) {
+                    add(index)
+                }
+            }
+        }
+        draftIndexes.asReversed().forEach { index ->
+            val tokens = estimateTokens(listOf(providerMessage(messages[index])))
+            if (tokens <= userTokenBudget - used) {
+                recentIndexes += index
+                used += tokens
+            }
         }
         val pinnedMessages = pinnedArtifactMessages(messages, pinnedArtifactRefs)
         return buildList {
@@ -489,7 +582,7 @@ object AiChatContextManager {
                     "$SUMMARY_PREFIX revision=${compactionRevision(messages) + 1}\n${summary.trim()}"
                 )
             })
-            addAll(recentUsers.asReversed())
+            recentIndexes.sorted().forEach { index -> add(messages[index].deepCopy()) }
             addAll(pinnedMessages)
         }
     }

@@ -10,6 +10,7 @@ import io.legado.app.utils.putPrefBoolean
 import io.legado.app.utils.putPrefInt
 import io.legado.app.utils.putPrefString
 import splitties.init.appCtx
+import java.util.UUID
 
 object AiConfig {
 
@@ -33,15 +34,6 @@ object AiConfig {
     const val MAX_READ_ALOUD_STORYBOARD_PRELOAD_COUNT = 5
     const val DEFAULT_ASSISTANT_CONTEXT_WINDOW_TOKENS = 1_000_000
     const val DEFAULT_CONTEXT_COMPACTION_THRESHOLD_PERCENT = 90
-    val ASSISTANT_CONTEXT_WINDOW_OPTIONS = listOf(
-        32_000,
-        64_000,
-        128_000,
-        256_000,
-        512_000,
-        1_000_000,
-        2_000_000
-    )
     val CONTEXT_COMPACTION_THRESHOLD_OPTIONS = listOf(0) + (50..95 step 5)
 
     var internalMcpEnabled: Boolean
@@ -151,49 +143,49 @@ object AiConfig {
             )
         }
 
-    var assistantProviderId: String
+    val assistantProviderId: String
         get() = appCtx.getPrefString(PreferKey.aiAssistantProviderId).orEmpty()
-        set(value) {
-            appCtx.putPrefString(PreferKey.aiAssistantProviderId, value.trim())
-        }
 
-    var assistantModelId: String
+    val assistantModelId: String
         get() = appCtx.getPrefString(PreferKey.aiAssistantModelId).orEmpty()
-        set(value) {
-            appCtx.putPrefString(PreferKey.aiAssistantModelId, value.trim())
-        }
 
-    var assistantReasoningLevel: AiReasoningLevel
-        get() = AiReasoningLevel.from(appCtx.getPrefString(PreferKey.aiAssistantReasoningLevel))
-        set(value) {
-            appCtx.putPrefString(PreferKey.aiAssistantReasoningLevel, value.prefValue)
+    internal val hasAssistantModelSelection: Boolean
+        get() = assistantProviderId.isNotBlank() && assistantModelId.isNotBlank()
+
+    internal fun assistantModelReasoning(provider: AiProviderSetting, model: AiModel): AiAssistantReasoning {
+        val legacyEffortKey = if (provider.officialDeepSeekModelConfigEndpoint() != null) {
+            PreferKey.aiAssistantDeepSeekReasoningEffort
+        } else {
+            PreferKey.aiAssistantModelReasoningEffort
         }
+        return provider.modelAssistantReasoning(
+            model,
+            assistantEffort = appCtx.getPrefString(legacyEffortKey),
+            inheritedLevel = appCtx.getPrefString(PreferKey.aiAssistantReasoningLevel)?.let { AiReasoningLevel.from(it) },
+            modelEffort = appCtx.getPrefString(assistantReasoningChoiceKey(provider, model.id)),
+        )
+    }
+
+    internal fun saveAssistantModelReasoning(provider: AiProviderSetting, model: AiModel, choice: String) {
+        appCtx.putPrefString(assistantReasoningChoiceKey(provider, model.id), choice)
+    }
+
+    private fun assistantReasoningChoiceKey(provider: AiProviderSetting, modelId: String): String {
+        val identity = "${provider.modelConfigurationKey()}\u0000$modelId"
+        val modelKey = UUID.nameUUIDFromBytes(identity.toByteArray(Charsets.UTF_8))
+        return "${PreferKey.aiAssistantReasoningChoice}.$modelKey"
+    }
 
     val contextCompactionEnabled: Boolean
         get() = contextCompactionThresholdPercent > 0
-
-    var contextCompactionProviderId: String
-        get() = appCtx.getPrefString(PreferKey.aiContextCompactionProviderId).orEmpty()
-        set(value) {
-            appCtx.putPrefString(PreferKey.aiContextCompactionProviderId, value.trim())
-        }
-
-    var contextCompactionModelId: String
-        get() = appCtx.getPrefString(PreferKey.aiContextCompactionModelId).orEmpty()
-        set(value) {
-            appCtx.putPrefString(PreferKey.aiContextCompactionModelId, value.trim())
-        }
 
     var assistantContextWindowTokens: Int
         get() = appCtx.getPrefInt(
             PreferKey.aiAssistantContextWindowTokens,
             DEFAULT_ASSISTANT_CONTEXT_WINDOW_TOKENS
-        ).nearestOption(ASSISTANT_CONTEXT_WINDOW_OPTIONS)
+        ).takeIf { it > 0 } ?: DEFAULT_ASSISTANT_CONTEXT_WINDOW_TOKENS
         set(value) {
-            appCtx.putPrefInt(
-                PreferKey.aiAssistantContextWindowTokens,
-                value.nearestOption(ASSISTANT_CONTEXT_WINDOW_OPTIONS)
-            )
+            appCtx.putPrefInt(PreferKey.aiAssistantContextWindowTokens, value.coerceAtLeast(1))
         }
 
     var contextCompactionThresholdPercent: Int
@@ -341,6 +333,14 @@ object AiConfig {
         purifyModelId = modelId
     }
 
+    internal fun clearPurifyModel() {
+        appCtx.defaultSharedPreferences.edit {
+            remove(PreferKey.aiPurifyProviderId)
+            remove(PreferKey.aiPurifyModelId)
+            remove(PreferKey.aiPurifyReasoningLevel)
+        }
+    }
+
     fun requireReadAloudStoryboardModel(): AiModelSelection {
         val providerId = readAloudStoryboardProviderId
         val modelId = readAloudStoryboardModelId
@@ -355,6 +355,14 @@ object AiConfig {
         readAloudStoryboardModelId = modelId
     }
 
+    internal fun clearReadAloudStoryboardModel() {
+        appCtx.defaultSharedPreferences.edit {
+            remove(PreferKey.aiReadAloudStoryboardProviderId)
+            remove(PreferKey.aiReadAloudStoryboardModelId)
+            remove(PreferKey.aiReadAloudStoryboardReasoningLevel)
+        }
+    }
+
     fun requireAssistantModel(): AiModelSelection {
         val providerId = assistantProviderId
         val modelId = assistantModelId
@@ -364,19 +372,44 @@ object AiConfig {
         return AiModelSelection(providerId, modelId)
     }
 
-    fun saveAssistantModel(providerId: String, modelId: String) {
-        assistantProviderId = providerId
-        assistantModelId = modelId
+    fun saveAssistantModel(providerId: String, modelId: String): Boolean {
+        val nextProviderId = providerId.trim()
+        val nextModelId = modelId.trim()
+        val currentProviderId = assistantProviderId
+        val currentModelId = assistantModelId
+        val providers = AiProviderStore.providers()
+        val nextProvider = providers.firstOrNull { it.id == nextProviderId } ?: return false
+        val nextModel = nextProvider.assistantModelChoice(nextModelId)?.model ?: return false
+        val currentLimit = providers.firstOrNull { it.id == currentProviderId }
+            ?.let { it.assistantContextWindowLimit(it.assistantModelChoice(currentModelId)?.model) }
+        val nextLimit = nextProvider.assistantContextWindowLimit(nextModel)
+        val storedWindow = assistantContextWindowTokens
+        val currentWindow = capAssistantContextWindow(storedWindow, currentLimit)
+        val nextWindow = capAssistantContextWindow(currentWindow, nextLimit)
+        appCtx.defaultSharedPreferences.edit {
+            putString(PreferKey.aiAssistantProviderId, nextProviderId)
+            putString(PreferKey.aiAssistantModelId, nextModelId)
+            if (nextWindow != storedWindow) putInt(PreferKey.aiAssistantContextWindowTokens, nextWindow)
+        }
+        return true
     }
 
-    fun assistantChatParams(supportsReasoning: Boolean): AiTextParams {
-        val level = assistantReasoningLevel.takeIf { supportsReasoning } ?: AiReasoningLevel.OFF
-        return AiTextParams(
-            temperature = temperature,
-            enableThinking = level != AiReasoningLevel.OFF && level != AiReasoningLevel.AUTO,
-            disableThinking = level == AiReasoningLevel.OFF,
-            reasoningEffort = level.reasoningEffort
-        )
+    internal fun clearAssistantModel() {
+        val providerId = assistantProviderId
+        val modelId = assistantModelId
+        val provider = if (providerId.isNotBlank() && modelId.isNotBlank()) {
+            AiProviderStore.provider(providerId)
+        } else {
+            null
+        }
+        appCtx.defaultSharedPreferences.edit {
+            remove(PreferKey.aiAssistantProviderId)
+            remove(PreferKey.aiAssistantModelId)
+            remove(PreferKey.aiAssistantReasoningLevel)
+            remove(PreferKey.aiAssistantDeepSeekReasoningEffort)
+            remove(PreferKey.aiAssistantModelReasoningEffort)
+            if (provider != null) remove(assistantReasoningChoiceKey(provider, modelId))
+        }
     }
 
     fun purifyParagraphParams(
@@ -386,26 +419,6 @@ object AiConfig {
         return purifyTextParams(
             supportsReasoning = supportsReasoning
         )
-    }
-
-    fun contextCompactionModel(): AiModelSelection {
-        val providerId = contextCompactionProviderId
-        val modelId = contextCompactionModelId
-        return if (providerId.isBlank() || modelId.isBlank()) {
-            requireAssistantModel()
-        } else {
-            AiModelSelection(providerId, modelId)
-        }
-    }
-
-    fun saveContextCompactionModel(providerId: String, modelId: String) {
-        contextCompactionProviderId = providerId
-        contextCompactionModelId = modelId
-    }
-
-    fun followAssistantForContextCompaction() {
-        contextCompactionProviderId = ""
-        contextCompactionModelId = ""
     }
 
     fun purifyChapterRuleParams(

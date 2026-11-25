@@ -106,6 +106,8 @@ internal fun SearchResultCard(
     cardStrokeColorRes: Int = R.color.ng_settings_item_stroke,
     cardBorderWidth: Dp = 0.8.dp,
     coverBitmapCache: SearchCoverBitmapCache? = null,
+    showIntro: Boolean = true,
+    onAccent: Color = Color.White,
 ) {
     val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -119,7 +121,6 @@ internal fun SearchResultCard(
     val primaryText = colorResource(R.color.primaryText)
     val secondaryText = colorResource(R.color.secondaryText)
     val accent = Color(NgTheme.colors.primary)
-    val onAccent = Color.White
     val textStyle = SearchCardTextStyle
 
     Row(
@@ -220,16 +221,18 @@ internal fun SearchResultCard(
                     color = secondaryText,
                 )
             }
-            Text(
-                text = book.trimIntro(context),
-                color = secondaryText,
-                fontSize = 12.sp,
-                minLines = 1,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 16.sp,
-                style = textStyle
-            )
+            if (showIntro) {
+                Text(
+                    text = book.trimIntro(context),
+                    color = secondaryText,
+                    fontSize = 12.sp,
+                    minLines = 1,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp,
+                    style = textStyle
+                )
+            }
         }
     }
 }

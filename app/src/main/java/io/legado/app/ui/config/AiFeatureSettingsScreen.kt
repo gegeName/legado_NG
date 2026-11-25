@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.legado.app.R
 import io.legado.app.help.ai.AiConfig
+import io.legado.app.help.ai.AiExternalSearchSettings
 import io.legado.app.ui.design.components.NgSettingsTrailing
 import io.legado.app.ui.design.components.compose.NgDockSlider
 import io.legado.app.ui.design.components.compose.NgExpandableSettingsItem
@@ -166,7 +167,6 @@ internal fun AiReadAloudModelSettingsScreen(
 internal data class AiAssistantModelSettingsScreenState(
     val modelSummary: String = "",
     val reasoningSummary: String = "",
-    val compactionModelSummary: String = "",
     val contextWindowSummary: String = "",
     val compactionThresholdSummary: String = "",
     val internalMcpEnabled: Boolean = false,
@@ -180,9 +180,9 @@ internal data class AiAssistantModelSettingsScreenState(
 internal sealed interface AiAssistantModelSettingsAction {
     data object SelectModel : AiAssistantModelSettingsAction
     data object SelectReasoning : AiAssistantModelSettingsAction
-    data object SelectCompactionModel : AiAssistantModelSettingsAction
     data object SelectContextWindow : AiAssistantModelSettingsAction
     data object SelectCompactionThreshold : AiAssistantModelSettingsAction
+    data object OpenWebSettings : AiAssistantModelSettingsAction
     data class InternalMcpChanged(val enabled: Boolean) : AiAssistantModelSettingsAction
     data class MemoryChanged(val enabled: Boolean) : AiAssistantModelSettingsAction
     data object OpenMemory : AiAssistantModelSettingsAction
@@ -192,6 +192,7 @@ internal sealed interface AiAssistantModelSettingsAction {
 @Composable
 internal fun AiAssistantModelSettingsScreen(
     state: AiAssistantModelSettingsScreenState,
+    searchSettings: AiExternalSearchSettings,
     onAction: (AiAssistantModelSettingsAction) -> Unit,
 ) {
     AiSingleGroupSettingsScreen {
@@ -211,13 +212,6 @@ internal fun AiAssistantModelSettingsScreen(
             onClick = { onAction(AiAssistantModelSettingsAction.SelectReasoning) },
         )
         AiSettingsEntry(
-            title = stringResource(R.string.ai_context_compaction_model),
-            summary = state.compactionModelSummary,
-            iconRes = R.drawable.ic_ai,
-            summaryMaxLines = 2,
-            onClick = { onAction(AiAssistantModelSettingsAction.SelectCompactionModel) },
-        )
-        AiSettingsEntry(
             title = stringResource(R.string.ai_assistant_context_window),
             summary = state.contextWindowSummary,
             iconRes = R.drawable.ic_ai_context_menu,
@@ -230,6 +224,13 @@ internal fun AiAssistantModelSettingsScreen(
             iconRes = R.drawable.ic_read_aloud_speed,
             summaryMaxLines = 2,
             onClick = { onAction(AiAssistantModelSettingsAction.SelectCompactionThreshold) },
+        )
+        AiSettingsEntry(
+            title = stringResource(R.string.ai_assistant_web_settings),
+            summary = assistantWebSettingsSummary(searchSettings),
+            iconRes = R.drawable.ic_cfg_web,
+            summaryMaxLines = 2,
+            onClick = { onAction(AiAssistantModelSettingsAction.OpenWebSettings) },
         )
         AiSettingsSwitchEntry(
             title = stringResource(R.string.ai_internal_mcp),

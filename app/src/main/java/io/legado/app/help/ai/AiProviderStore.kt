@@ -10,6 +10,7 @@ import io.legado.app.utils.getPrefInt
 import io.legado.app.utils.getPrefString
 import io.legado.app.utils.putPrefString
 import splitties.init.appCtx
+import java.util.UUID
 
 object AiProviderStore {
 
@@ -23,7 +24,12 @@ object AiProviderStore {
             return migrated
         }
         val merged = mergeWithDefaults(saved).map { provider ->
-            provider.copy(models = enrichUnspecifiedAiModels(provider.models))
+            if (provider.catalogRefreshRequired) provider else provider.copy(
+                models = enrichUnspecifiedAiModels(
+                    provider.models,
+                    provider.modelConfigurationKey(),
+                ),
+            )
         }
         if (merged != saved) {
             saveProviders(merged)
@@ -40,13 +46,93 @@ object AiProviderStore {
     }
 
     @Synchronized
-    fun saveProvider(provider: AiProviderSetting) {
+    internal fun selectChatGptAccount(
+        clientId: String,
+        refresh: Boolean = false,
+        onlyIfSelected: Boolean = false,
+        providerId: String = AiDefaultProviders.CHATGPT_ID,
+    ) {
         val providers = providers()
-        if (providers.any { it.id == provider.id }) {
-            saveProviders(providers.map { if (it.id == provider.id) provider else it })
+        val current = providers.firstOrNull { it.id == providerId && it.isOpenAiAccountProvider() } ?: return
+        val sameAccount = current.chatGptAccountId == clientId
+        if (sameAccount && !refresh || onlyIfSelected && !sameAccount) return
+        val updated = if (sameAccount) current else current.copy(
+            chatGptAccountId = clientId,
+            model = "",
+            models = emptyList(),
+            availableModelIds = emptyList(),
+            availableModelSelectionInitialized = false,
+            catalogLoaded = false,
+            unlistedModelEdits = null,
+        )
+        saveProviders(providers.map {
+            if (it.id == current.id) updated.copy(
+                catalogRevision = UUID.randomUUID().toString(),
+                catalogRefreshRequired = true,
+            ) else it
+        })
+    }
+
+    @Synchronized
+    fun saveProvider(provider: AiProviderSetting, useExistingKeyHere: Boolean = false): AiProviderSetting {
+        val providers = providers()
+        val previous = providers.firstOrNull { it.id == provider.id }
+        val updated = normalize(provider).withRequestConfiguration(previous, useExistingKeyHere)
+        if (previous != null) {
+            saveProviders(providers.map { if (it.id == updated.id) updated else it })
         } else {
-            saveProviders(providers + provider)
+            saveProviders(providers + updated)
         }
+        return updated
+    }
+
+    @Synchronized
+    internal fun addManualModel(
+        providerId: String,
+        modelId: String,
+        type: AiModelType,
+        expectedModelConfigurationKey: String? = null,
+    ): AiManualModelAddResult {
+        val id = modelId.trim()
+        if (id.isEmpty()) return AiManualModelAddResult.UNAVAILABLE
+        val current = provider(providerId) ?: return AiManualModelAddResult.UNAVAILABLE
+        if (current.isOpenAiAccountProvider()) return AiManualModelAddResult.UNAVAILABLE
+        val source = current.modelConfigurationKey()
+        if (expectedModelConfigurationKey != null && expectedModelConfigurationKey != source) {
+            return AiManualModelAddResult.UNAVAILABLE
+        }
+        if (current.models.any { model ->
+                model.id == id && (model.manualModelEndpoint == source ||
+                    (model.manualModelEndpoint == null && !current.catalogRefreshRequired))
+            }
+        ) return AiManualModelAddResult.DUPLICATE
+        saveProvider(current.withManualModel(id, type))
+        return AiManualModelAddResult.ADDED
+    }
+
+    @Synchronized
+    internal fun removeManualModel(
+        providerId: String,
+        modelId: String,
+        expectedModelConfigurationKey: String? = null,
+    ): Boolean {
+        val id = modelId.trim()
+        if (id.isEmpty()) return false
+        val current = provider(providerId) ?: return false
+        val source = current.modelConfigurationKey()
+        if (expectedModelConfigurationKey != null && expectedModelConfigurationKey != source) return false
+        if (current.models.none { it.id == id && it.manualModelEndpoint == source }) return false
+
+        val unlisted = current.unlistedModelEdits.orEmpty().filterNot { model ->
+            model.id == id && (model.manualModelEndpoint == source || model.modelSettingsFor(source) != null)
+        }
+        saveProvider(current.copy(
+            model = current.model.takeUnless { it == id }.orEmpty(),
+            models = current.models.filterNot { it.id == id },
+            availableModelIds = current.availableModelIds.filterNot { it == id },
+            unlistedModelEdits = unlisted.takeIf { it.isNotEmpty() },
+        ))
+        return true
     }
 
     @Synchronized
@@ -72,14 +158,17 @@ object AiProviderStore {
         val reset = defaults.copy(
             name = if (current.builtIn || autoName) defaults.name else current.name,
             apiKey = current.apiKey,
+            chatGptAccountId = current.chatGptAccountId,
             enabled = current.enabled,
             model = current.model,
             models = current.models,
             availableModelIds = current.availableModelIds,
-            availableModelSelectionInitialized = current.availableModelSelectionInitialized
+            availableModelSelectionInitialized = current.availableModelSelectionInitialized,
+            catalogRefreshRequired = current.catalogRefreshRequired,
+            catalogLoaded = current.catalogLoaded,
+            unlistedModelEdits = current.unlistedModelEdits,
         )
-        saveProvider(reset)
-        return reset
+        return saveProvider(reset)
     }
 
     @Synchronized
@@ -179,14 +268,32 @@ object AiProviderStore {
         default: AiProviderSetting,
         savedProvider: AiProviderSetting
     ): AiProviderSetting {
+        if (default.isOpenAiAccountProvider()) return default.copy(
+            enabled = savedProvider.enabled,
+            chatGptAccountId = savedProvider.chatGptAccountId,
+            catalogRevision = savedProvider.catalogRevision,
+            catalogRefreshRequired = savedProvider.catalogRefreshRequired,
+            catalogLoaded = savedProvider.catalogLoaded,
+            model = savedProvider.model,
+            models = savedProvider.models,
+            availableModelIds = savedProvider.availableModelIds,
+            availableModelSelectionInitialized = savedProvider.availableModelSelectionInitialized,
+            unlistedModelEdits = savedProvider.unlistedModelEdits,
+        )
         val baseUrl = savedProvider.baseUrl.ifBlank { default.baseUrl }
         return default.copy(
             enabled = savedProvider.enabled,
             name = savedProvider.name.ifBlank { default.name },
             apiKey = savedProvider.apiKey,
+            apiKeyOrigin = savedProvider.apiKeyOrigin,
+            catalogRevision = savedProvider.catalogRevision,
+            catalogRefreshRequired = savedProvider.catalogRefreshRequired,
+            catalogLoaded = savedProvider.catalogLoaded,
+            unlistedModelEdits = savedProvider.unlistedModelEdits,
             baseUrl = baseUrl,
             model = savedProvider.model.ifBlank { default.model },
-            models = normalizeModels(savedProvider.models.ifEmpty { default.models }),
+            models = normalizeModels(if (savedProvider.catalogLoaded) savedProvider.models
+                else savedProvider.models.ifEmpty { default.models }),
             availableModelIds = normalizeModelIds(savedProvider.availableModelIds),
             availableModelSelectionInitialized =
                 savedProvider.availableModelSelectionInitialized,
@@ -194,6 +301,8 @@ object AiProviderStore {
             chatCompletionsPath = savedProvider.chatCompletionsPath.ifBlank {
                 default.chatCompletionsPath
             },
+            useResponsesApi = savedProvider.useResponsesApi,
+            responsesApiPath = default.responsesApiPath,
             modelsUrl = normalizeAiApiPath(
                 baseUrl,
                 savedProvider.modelsUrl.ifBlank { default.modelsUrl }
@@ -247,9 +356,10 @@ object AiProviderStore {
     }
 
     private fun normalize(provider: AiProviderSetting): AiProviderSetting {
+        val isSubscription = provider.isOpenAiAccountProvider()
         return provider.copy(
             timeoutSeconds = provider.timeoutSeconds.coerceIn(5, 600),
-            models = normalizeModels(provider.models),
+            models = normalizeModels(provider.models, sort = !isSubscription),
             availableModelIds = normalizeModelIds(provider.availableModelIds),
             modelsUrl = normalizeAiApiPath(provider.baseUrl, provider.modelsUrl),
             balanceUrl = normalizeAiApiPath(provider.baseUrl, provider.balanceUrl)
@@ -285,7 +395,7 @@ object AiProviderStore {
                 apiKey = nullableString(provider.apiKey),
                 baseUrl = baseUrl,
                 model = nullableString(provider.model),
-                models = normalizeModels(nullableModels(provider.models)),
+                models = normalizeModels(nullableModels(provider.models), sort = id != AiDefaultProviders.CHATGPT_ID),
                 availableModelIds = normalizeModelIds(provider.availableModelIds),
                 availableModelSelectionInitialized =
                     provider.availableModelSelectionInitialized,
@@ -328,12 +438,7 @@ object AiProviderStore {
             AiProviderType.GOOGLE -> "custom_google"
             AiProviderType.OPENAI -> "custom_openai"
         }
-        val ids = providers().map { it.id }.toSet()
-        var index = 1
-        while ("${prefix}_$index" in ids) {
-            index++
-        }
-        return "${prefix}_$index"
+        return "${prefix}_${UUID.randomUUID()}"
     }
 
     private fun nullableString(value: String?): String {
@@ -354,8 +459,8 @@ object AiProviderStore {
             .distinct()
     }
 
-    private fun normalizeModels(models: List<*>): List<AiModel> {
-        return models.mapNotNull { model ->
+    private fun normalizeModels(models: List<*>, sort: Boolean = true): List<AiModel> {
+        val normalized = models.mapNotNull { model ->
             when (model) {
                 is AiModel -> model.normalizedModel()
                 is Map<*, *> -> model.toAiModel()
@@ -366,7 +471,7 @@ object AiProviderStore {
         }.filter { it.id.isNotBlank() }
             .map { it.withClearedCapabilitiesIfNeeded() }
             .distinctBy { it.id }
-            .sortedBy { it.id.lowercase() }
+        return if (sort) normalized.sortedBy { it.id.lowercase() } else normalized
     }
 
     private fun AiModel.withClearedCapabilitiesIfNeeded(): AiModel {
@@ -471,6 +576,7 @@ object AiProviderStore {
             "video" -> AiModelType.VIDEO
             "asr", "speech_to_text", "stt" -> AiModelType.ASR
             "tts", "text_to_speech", "voice" -> AiModelType.TTS
+            "ocr" -> AiModelType.OCR
             else -> AiModelType.CHAT
         }
     }
@@ -489,6 +595,9 @@ object AiProviderStore {
             }
             if (values.any { it.equals("video", ignoreCase = true) }) {
                 add(AiModelModality.VIDEO)
+            }
+            if (values.any { it.equals("file", ignoreCase = true) }) {
+                add(AiModelModality.FILE)
             }
         }
     }
@@ -536,20 +645,29 @@ internal fun enableBuiltInAiProviders(providers: List<AiProviderSetting>): List<
     }
 }
 
-internal fun enrichUnspecifiedAiModels(models: List<AiModel>): List<AiModel> {
+internal fun enrichUnspecifiedAiModels(
+    models: List<AiModel>,
+    modelConfiguration: String? = null,
+): List<AiModel> {
     return models.map { model ->
+        if (model.manualModelEndpoint != null) return@map model
         val hasNoCapabilities = model.inputModalities.isEmpty() &&
             model.outputModalities.isEmpty() && model.abilities.isEmpty()
         val possibleWrongType = model.type == AiModelType.CHAT &&
             (model.id.contains("asr", ignoreCase = true) ||
-                model.id.contains("seedance", ignoreCase = true))
+                model.id.contains("seedance", ignoreCase = true) ||
+                AiModelRegistry.isOpenAiEmbedding(model.id))
         val hasWrongType = possibleWrongType &&
             AiModelRegistry.capabilities(model.id).type?.let { it != AiModelType.CHAT } == true
+        val hasWrongOcrType = model.type != AiModelType.OCR && AiModelRegistry.isOcrModel(model.id)
         val nonChatWithChatAbilities = model.type != AiModelType.CHAT &&
             (AiModelAbility.TOOL in model.abilities || AiModelAbility.REASONING in model.abilities) &&
             AiModelRegistry.capabilities(model.id).type?.let { it != AiModelType.CHAT } == true
-        if (hasNoCapabilities || hasWrongType || nonChatWithChatAbilities) {
-            AiModelRegistry.enrich(model)
+        if (hasNoCapabilities || hasWrongType || hasWrongOcrType || nonChatWithChatAbilities) {
+            val detected = AiModelRegistry.enrich(model)
+                .withCatalogCapabilities(model.modelInfo?.takeIf { it.endpoint == modelConfiguration })
+            val settings = model.modelSettingsFor(modelConfiguration)
+            if (settings == null) detected else detected.withCapabilityOverrides(model, settings)
         } else {
             model
         }
