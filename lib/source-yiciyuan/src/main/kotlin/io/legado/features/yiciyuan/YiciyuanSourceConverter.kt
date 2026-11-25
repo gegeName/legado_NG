@@ -1836,10 +1836,15 @@ object YiciyuanSourceConverter {
         val jsIndex = rule.indexOf("@js:", ignoreCase = true)
         if (jsIndex <= 0) return rule
         val selectorPart = rule.substring(0, jsIndex)
-        if (selectorPart.contains("&&") || selectorPart.contains("http") || !selectorPart.contains("&")) {
-            return rule
+        var normalizedSelector = selectorPart.replace(Regex("(?<!\\|)\\|(?!\\|)"), "||")
+        if (normalizedSelector.contains("&") &&
+            !normalizedSelector.contains("&&") &&
+            !normalizedSelector.contains("http") &&
+            !normalizedSelector.startsWith("/")
+        ) {
+            normalizedSelector = normalizedSelector.replace("&", "&&")
         }
-        return selectorPart.replace("&", "&&") + rule.substring(jsIndex)
+        return normalizedSelector + rule.substring(jsIndex)
     }
 
     private fun normalizeWebRule(rule: String): String? {
